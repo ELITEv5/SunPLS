@@ -347,8 +347,8 @@
       for (const owner of owners) {
         try {
           const info = await vault.vaultInfo(owner);
-          // ratio returns basis points (15000 = 150%) — divide by 100
-          const ratioPct = Number(info.ratio) / 100;
+          // ratio returns plain percent (155 = 155%, not basis points)
+          const ratioPct = Number(info.ratio);
           const debt     = Number(ethers.formatEther(info.debt));
           if (debt === 0) continue;
 
@@ -398,15 +398,15 @@
               vd.bonusBps  = 0;
             }
 
-            // Profit in SunPLS units: reward(PLS) / (price/1e18) - gasCost(PLS) / (price/1e18)
-            // price = WPLS per SunPLS (1e18-scaled), so price/1e18 = PLS per SunPLS
+            // Profit in SunPLS units: reward(PLS) * price / 1e18
+            // price = SunPLS per WPLS, so SunPLS value of N PLS = N * price / 1e18
             const gasEst     = 150000n;
             const feeData    = await provider.getFeeData();
             const gasCostWei = gasEst * (feeData.gasPrice || 1000000n);
             const gasCostPLS = Number(ethers.formatEther(gasCostWei));
-            const plsPerSunPLS = price > 0n ? Number(price) / 1e18 : 1;
-            const rewardSunPLS = vd.reward / plsPerSunPLS;
-            const gasSunPLS    = gasCostPLS / plsPerSunPLS;
+            const priceNum   = price > 0n ? Number(price) / 1e18 : 0;
+            const rewardSunPLS = priceNum > 0 ? vd.reward * priceNum : 0;
+            const gasSunPLS    = priceNum > 0 ? gasCostPLS * priceNum : 0;
             vd.profitSunPLS = rewardSunPLS - gasSunPLS;
             vd.isProfitable = vd.profitSunPLS > 0;
 
