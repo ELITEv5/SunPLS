@@ -585,10 +585,16 @@
         limiterHitCount: s.limiterHitCount.toString()
       });
 
-      // Store R as BigInt (1e18-scaled) for use in all conversion math
-      currentR = s.redemptionValue > 0n ? s.redemptionValue : DECIMALS;
+      // Store R as BigInt — same precision as oracle price (WPLS per SunPLS, 1e18-scaled)
+      currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
 
-      const R         = Number(ethers.formatEther(currentR));
+      // R is WPLS per SunPLS, same scale as oracle price — display like price
+      const Rraw = Number(ethers.formatEther(currentR));
+      let Rdisplay;
+      if (Rraw >= 1_000_000) Rdisplay = (Rraw / 1_000_000).toFixed(2) + "M";
+      else if (Rraw >= 1_000) Rdisplay = (Rraw / 1_000).toFixed(2) + "K";
+      else Rdisplay = Rraw.toFixed(4);
+
       const rateBig   = s.currentRate;
       const rateAPR   = Number(rateBig) / 1e16;
       const epochs    = Number(s.epochs);
@@ -596,7 +602,7 @@
       const canTrig   = s.canTrigger;
       const limHits   = Number(s.limiterHitCount);
 
-      document.getElementById("ctrlR").textContent      = R.toFixed(6);
+      document.getElementById("ctrlR").textContent      = Rdisplay + " WPLS";
       document.getElementById("ctrlRate").textContent   = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
       document.getElementById("ctrlEpochs").textContent = epochs.toString();
       document.getElementById("ctrlNext").textContent   =
@@ -604,8 +610,13 @@
       document.getElementById("ctrlCan").textContent    = canTrig ? "✅ Yes" : "⏳ No";
       document.getElementById("ctrlLimiter").textContent = limHits.toString();
 
+      // Show spread between oracle spot and R
+      const oracleRaw = Number(ethers.formatEther(price));
+      const spread    = oracleRaw > 0 ? ((oracleRaw - Rraw) / Rraw * 100) : 0;
+      const spreadStr = (spread >= 0 ? "+" : "") + spread.toFixed(3) + "%";
+
       const rateDisplay = document.getElementById("rateDisplay");
-      rateDisplay.textContent = `Stability Rate: ${rateAPR >= 0 ? "+" : ""}${rateAPR.toFixed(4)}% APR | R = ${R.toFixed(6)}`;
+      rateDisplay.textContent = `Rate: ${(rateAPR >= 0 ? "+" : "")}${rateAPR.toFixed(4)}% APR | R = ${Rdisplay} WPLS | Spread: ${spreadStr}`;
       rateDisplay.style.color = rateAPR > 0 ? "#f87171" : rateAPR < 0 ? "#34d399" : "#fbbf24";
 
       document.getElementById("triggerEpochBtn").disabled = !canTrig;
@@ -648,25 +659,21 @@
   }
 
   // ── Conversions ──
-  // "sunplsVal" = amount denominated in SunPLS at current R
-  // e.g. user types "100" meaning "100 SunPLS worth" at current redemption value
-
-  // Convert a SunPLS-denominated value to PLS wei
-  // PLS needed = (sunplsVal * R * ORACLE_PRECISION) / (price * DECIMALS)
-  // Because: price = WPLS per SunPLS (oracle precision-scaled)
-  //          R     = redemption value (1e18-scaled)
-  //          so PLS = sunplsVal * R / price  (all 1e18-scaled, cancels out)
+  // Oracle price = WPLS per SunPLS (1e18-scaled). R = same units.
+  // To convert a SunPLS token amount to PLS wei:
+  //   PLS = sunplsTokens * price / DECIMALS
+  //   (price already tells us how many WPLS = 1 SunPLS)
+  // For deposit inputs where user enters a "SunPLS value amount":
+  //   PLS needed = sunplsValue * price / DECIMALS  (same formula, oracle is the bridge)
   function sunplsToPLS(sunplsVal) {
     if (!price || price === 0n) return 0n;
     const sunplsWei = ethers.parseUnits(sunplsVal.toString(), 18);
-    // sunplsWei * R / price   (R and price are both 1e18-scaled, so they cancel)
-    return (sunplsWei * currentR) / price;
+    return (sunplsWei * price) / DECIMALS;
   }
 
-  // Convert a raw SunPLS amount to token wei (1:1 — user is entering token units directly)
+  // Raw SunPLS token amount → wei (1:1, no conversion needed)
   function sunplsToWei(amount) { return ethers.parseUnits(amount.toString(), 18); }
 
-  // Legacy aliases used in button handlers
   const usdToPLS    = sunplsToPLS;
   const usdToSunPLS = sunplsToWei;
 
@@ -783,8 +790,8 @@
           } else {
             // Excess collateral value in SunPLS, convert to PLS
             const excessValSunPLS = collValSunPLS - reqValSunPLS;
-            // PLS = excessVal * R / price  (both 1e18-scaled)
-            const withdrawablePLS = (excessValSunPLS * currentR) / price;
+            // Convert excess SunPLS value back to PLS: PLS = excessVal * price / DECIMALS
+            const withdrawablePLS = (excessValSunPLS * price) / DECIMALS;
             const wdNum = Number(ethers.formatEther(withdrawablePLS));
             wmPreview.textContent = `Withdraw ≈ ${wdNum.toFixed(2)} PLS safely (vault stays at 150%)`;
             wmPreview.style.color = "#10b981";
@@ -843,10 +850,9 @@
     const el  = document.getElementById("plsOneClick");
     if (!val || !price) { el.textContent = ""; return; }
     const pls     = Number(ethers.formatEther(sunplsToPLS(val)));
-    const R       = Number(ethers.formatEther(currentR));
-    // At 155% ratio, mintable = depositValue / 1.55 / R (since debt is in SunPLS)
-    const mintAmt = val / 1.55 / R;
-    el.textContent = `≈ ${pls.toLocaleString(undefined,{maximumFractionDigits:0})} PLS → ${mintAmt.toFixed(4)} SunPLS (155%, R=${R.toFixed(4)})`;
+    // At 155% ratio: mintable SunPLS = depositValueInSunPLS / 1.55
+    const mintAmt = val / 1.55;
+    el.textContent = `≈ ${pls.toLocaleString(undefined,{maximumFractionDigits:0})} PLS → ${mintAmt.toFixed(4)} SunPLS (155%)`;
   });
 
   // Redemption preview on input change
@@ -992,7 +998,7 @@
         const reqValSunPLS  = (info.debt * 150n) / 100n;
         if (collValSunPLS <= reqValSunPLS) throw new Error("Already at minimum safe collateral — repay debt first");
         const excessVal       = collValSunPLS - reqValSunPLS;
-        const withdrawablePLS = (excessVal * currentR) / price;
+        const withdrawablePLS = (excessVal * price) / DECIMALS;
         if (withdrawablePLS === 0n) throw new Error("Withdrawable amount rounds to zero");
         await (await vault.withdrawPLS(withdrawablePLS)).wait();
         statusEl.textContent = `Withdrew ${Number(ethers.formatEther(withdrawablePLS)).toFixed(2)} PLS — vault still safe!`;
