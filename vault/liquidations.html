@@ -156,7 +156,6 @@
 
     #nebula { opacity: 0; animation: fadeIn 2s ease forwards; }
 
-    /* Redemption tab specific */
     .redeem-card {
       border: 1px solid rgba(20,184,166,0.4);
       background: rgba(20,184,166,0.06);
@@ -184,7 +183,6 @@
     <div class="status" id="status"></div>
     <div class="error"  id="error"></div>
 
-    <!-- Info box -->
     <div class="info-box">
       <h3 onclick="toggleInfo()">
         📖 How Liquidations & Redemptions Work
@@ -194,11 +192,11 @@
         <ul>
           <li><span class="highlight">Liquidation Trigger:</span> Vaults below 110% health ratio can be liquidated</li>
           <li><span class="highlight">Minimum Repay:</span> 20% of total debt (automatically calculated)</li>
-          <li><span class="highlight">Dutch Auction Bonus:</span> Starts at MAX_BONUS_BPS, decreases to MIN_BONUS_BPS over AUCTION_TIME</li>
+          <li><span class="highlight">Dutch Auction Bonus:</span> Starts at MIN_BONUS_BPS and increases to MAX_BONUS_BPS over AUCTION_TIME</li>
           <li><span class="highlight">Liquidation Cooldown:</span> Between liquidations of the same vault (LIQUIDATION_COOLDOWN)</li>
           <li><span class="highlight">Process:</span> Approve SunPLS → liquidate vault → receive PLS reward</li>
           <li><span class="highlight">Interest Buffer:</span> Dashboard adds 1% buffer to handle debt growth during the transaction</li>
-          <li><span class="highlight">Redemptions:</span> Any SunPLS holder can redeem against vaults above REDEMPTION_RATIO</li>
+          <li><span class="highlight">Redemptions:</span> Any SunPLS holder can redeem against vaults at or below REDEMPTION_RATIO</li>
           <li><span class="highlight">Redemption Fee:</span> Small fee (REDEMPTION_FEE_BPS) goes to the vault owner being redeemed</li>
           <li><span class="highlight">Auto-Rescan:</span> Dashboard refreshes every 2 minutes</li>
         </ul>
@@ -238,6 +236,12 @@
   <script>
   // ═══════════════════════════════════════════════════════════════════
   // SUNPLS LIQUIDATION DASHBOARD
+  //
+  // CONFIRMED PRICE DIRECTION:
+  // oracle price = WPLS per SunPLS (1e18 scale)
+  // Therefore:
+  //   PLS value of N SunPLS  = N * price / 1e18
+  //   SunPLS value of N PLS  = N * 1e18 / price
   // ═══════════════════════════════════════════════════════════════════
 
   const ethers = window.ethers;
@@ -295,7 +299,6 @@
     } catch { price = 0n; }
   }
 
-  // ── Get all unique vault owners from on-chain events ──
   async function getAllVaultOwners() {
     try {
       const depositFilter = vault.filters.Deposit();
@@ -315,7 +318,6 @@
     }
   }
 
-  // ── Main scan ──
   async function scanAll() {
     if (!vault) {
       document.getElementById("error").textContent = "Please connect wallet first";
@@ -347,22 +349,18 @@
       for (const owner of owners) {
         try {
           const info = await vault.vaultInfo(owner);
-          // ratio returns plain percent (155 = 155%, not basis points)
           const ratioPct = Number(info.ratio);
           const debt     = Number(ethers.formatEther(info.debt));
           if (debt === 0) continue;
 
-          // redemptionVal in WPLS/SunPLS — format with K/M
           const redemptionRaw = Number(ethers.formatEther(info.redemptionVal));
           let redemptionDisplay;
-          if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS";
-          else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS";
-          else redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS";
+          if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
+          else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
+          else redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
 
-          // collateralValueUSD is actually in SunPLS units
           const collValSunPLS = Number(ethers.formatEther(info.collateralValueUSD));
 
-          // Format large PLS amounts
           const collPLS = Number(ethers.formatEther(info.collateral));
           let collDisplay;
           if (collPLS >= 1e9) collDisplay = (collPLS/1e9).toFixed(2) + "B";
@@ -386,7 +384,6 @@
           };
 
           if (vd.isLiquidatable || ratioPct < 110) {
-            // Get liquidation params — graceful fallback if liquidationInfo fn doesn't exist
             try {
               const liqInfo = await vault.liquidationInfo(owner);
               vd.minRepay  = Number(ethers.formatEther(liqInfo.minRepay));
@@ -398,15 +395,15 @@
               vd.bonusBps  = 0;
             }
 
-            // Profit in SunPLS units: reward(PLS) * price / 1e18
-            // price = SunPLS per WPLS, so SunPLS value of N PLS = N * price / 1e18
+            // price = WPLS per SunPLS
+            // SunPLS value of N PLS = N / price
             const gasEst     = 150000n;
             const feeData    = await provider.getFeeData();
             const gasCostWei = gasEst * (feeData.gasPrice || 1000000n);
             const gasCostPLS = Number(ethers.formatEther(gasCostWei));
-            const priceNum   = price > 0n ? Number(price) / 1e18 : 0;
-            const rewardSunPLS = priceNum > 0 ? vd.reward * priceNum : 0;
-            const gasSunPLS    = priceNum > 0 ? gasCostPLS * priceNum : 0;
+            const priceNum   = price > 0n ? Number(ethers.formatEther(price)) : 0;
+            const rewardSunPLS = priceNum > 0 ? vd.reward / priceNum : 0;
+            const gasSunPLS    = priceNum > 0 ? gasCostPLS / priceNum : 0;
             vd.profitSunPLS = rewardSunPLS - gasSunPLS;
             vd.isProfitable = vd.profitSunPLS > 0;
 
@@ -476,7 +473,6 @@
 
     let html = '';
 
-    // ─── LIQUIDATABLE TAB ───
     if (currentTab === 'liquidatable') {
       html += `
         <div class="stats-header danger">
@@ -486,6 +482,7 @@
         </div>
       `;
       for (const v of data) {
+        const liquidateLabel = `🔥 Liquidate Now (min: ${v.minRepay.toFixed(4)} SunPLS)`;
         html += `
           <div class="card danger">
             <div class="info-grid">
@@ -525,14 +522,14 @@
               </div>
             </div>
             <button class="btn danger" style="margin-top:12px"
-              onclick="liquidateVault('${v.owner}')">
-              🔥 Liquidate Now (min: ${v.minRepay.toFixed(4)} SunPLS)
+              data-default-text="${liquidateLabel.replace(/"/g, '&quot;')}"
+              onclick="liquidateVault('${v.owner}', event)">
+              ${liquidateLabel}
             </button>
           </div>
         `;
       }
 
-    // ─── REDEEMABLE TAB ───
     } else if (currentTab === 'redeemable') {
       html += `
         <div class="stats-header teal">
@@ -576,14 +573,14 @@
               />
               <div id="redeemPrev_${v.owner.slice(-6)}" style="font-size:0.82em;color:#5eead4;text-align:center;min-height:1.2em;margin-bottom:6px"></div>
               <button class="btn teal" onclick="previewRedeem('${v.owner}')">Preview</button>
-              <button class="btn teal" style="margin-top:6px;background:#0f766e" onclick="redeemVault('${v.owner}')">
+              <button class="btn teal" style="margin-top:6px;background:#0f766e" onclick="redeemVault('${v.owner}', event)">
                 🔄 Redeem Against This Vault
               </button>
             </div>
           </div>
         `;
       }
-      // Attach preview listeners after render
+
       setTimeout(() => {
         data.forEach(v => {
           const id = `redeemAmt_${v.owner.slice(-6)}`;
@@ -592,7 +589,6 @@
         });
       }, 100);
 
-    // ─── RISKY TAB ───
     } else if (currentTab === 'risky') {
       html += `
         <div class="stats-header warning">
@@ -634,7 +630,6 @@
         `;
       }
 
-    // ─── HEALTHY TAB ───
     } else {
       html += `
         <div class="stats-header safe">
@@ -676,7 +671,6 @@
     results.innerHTML = html;
   }
 
-  // ── Redemption preview inline ──
   async function previewRedeem(ownerAddress) {
     const shortId = ownerAddress.slice(-6);
     const amtEl   = document.getElementById(`redeemAmt_${shortId}`);
@@ -700,18 +694,19 @@
     }
   }
 
-  // ── Execute Redemption ──
-  async function redeemVault(ownerAddress) {
+  async function redeemVault(ownerAddress, event) {
     const shortId = ownerAddress.slice(-6);
     const amtEl   = document.getElementById(`redeemAmt_${shortId}`);
     if (!amtEl || !amtEl.value || parseFloat(amtEl.value) <= 0) {
       document.getElementById("error").textContent = "Enter amount to redeem";
       return;
     }
+    const btn = event?.currentTarget || event?.target;
     try {
-      const btn = event.target;
-      btn.disabled = true;
-      btn.textContent = "⏳ Processing...";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Processing...";
+      }
       document.getElementById("error").textContent = "";
 
       const amt  = ethers.parseUnits(amtEl.value, 18);
@@ -720,11 +715,11 @@
 
       const allowance = await token.allowance(account, VAULT_ADDR);
       if (allowance < amt) {
-        btn.textContent = "⏳ Approving...";
+        if (btn) btn.textContent = "⏳ Approving...";
         await (await token.approve(VAULT_ADDR, amt)).wait();
       }
 
-      btn.textContent = "⏳ Redeeming...";
+      if (btn) btn.textContent = "⏳ Redeeming...";
       await (await vault.redeem(amt, ownerAddress)).wait();
 
       document.getElementById("status").textContent =
@@ -734,29 +729,29 @@
     } catch (e) {
       document.getElementById("error").textContent = e.reason || e.message || "Redemption failed";
       setTimeout(() => document.getElementById("error").textContent = "", 12000);
-      if (event.target) {
-        event.target.disabled = false;
-        event.target.textContent = "🔄 Redeem Against This Vault";
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "🔄 Redeem Against This Vault";
       }
     }
   }
 
-  // ── Execute Liquidation ──
-  async function liquidateVault(ownerAddress) {
+  async function liquidateVault(ownerAddress, event) {
+    const btn = event?.currentTarget || event?.target;
+    const defaultText = btn?.dataset?.defaultText || "🔥 Liquidate Now";
     try {
-      const btn = event.target;
-      btn.disabled = true;
-      btn.textContent = "⏳ Processing...";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Processing...";
+      }
       document.getElementById("error").textContent = "";
 
-      // Get liquidation params
       const liqInfo = await vault.liquidationInfo(ownerAddress);
       const minRepay = liqInfo.minRepay;
 
-      // Add 1% buffer for interest accrual between scan and tx
       const minRepayBuffered = (minRepay * 10100n) / 10000n;
 
-      btn.textContent = "⏳ Checking balance...";
+      if (btn) btn.textContent = "⏳ Checking balance...";
       const balance = await token.balanceOf(account);
       if (balance < minRepayBuffered) {
         throw new Error(
@@ -764,18 +759,16 @@
         );
       }
 
-      btn.textContent = "⏳ Approving...";
-      // Check allowance first to avoid unnecessary approve tx
+      if (btn) btn.textContent = "⏳ Approving...";
       const allowance = await token.allowance(account, VAULT_ADDR);
       if (allowance < minRepayBuffered) {
         await (await token.approve(VAULT_ADDR, minRepayBuffered)).wait();
       }
 
-      btn.textContent = "⏳ Liquidating...";
+      if (btn) btn.textContent = "⏳ Liquidating...";
       const liqTx = await vault.liquidate(ownerAddress, minRepayBuffered);
       const receipt = await liqTx.wait();
 
-      // Parse reward from Liquidation event
       let rewardPLS = "unknown";
       try {
         const liqEvent = receipt.logs.find(log => {
@@ -800,9 +793,9 @@
 
       if (msg.includes("Too small")) {
         msg = `"Too small" — vault interest accrued between scan and tx. Wait 10–30s and retry. The 1% buffer should cover it on the next attempt.`;
-      } else if (msg.includes("Safe")) {
+      } else if (msg.includes("safe") || msg.includes("Safe")) {
         msg = `Vault is now "Safe" — owner added collateral or repaid debt. Click Rescan to refresh.`;
-      } else if (msg.includes("Cooldown")) {
+      } else if (msg.includes("Cooldown") || msg.includes("cooldown")) {
         msg = `Liquidation cooldown active for this vault. Find another opportunity or wait.`;
       } else if (msg.includes("Insufficient")) {
         msg = `Insufficient SunPLS balance. Mint more from your vault or find a smaller liquidation.`;
@@ -810,9 +803,9 @@
 
       document.getElementById("error").textContent = msg;
       setTimeout(() => document.getElementById("error").textContent = "", 15000);
-      if (event.target) {
-        event.target.disabled = false;
-        event.target.textContent = "🔥 Liquidate Now";
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = defaultText;
       }
     }
   }
@@ -824,7 +817,6 @@
     document.getElementById("toggleIcon").classList.toggle("collapsed");
   }
 
-  // ── Nebula Background ──
   const nebula = document.getElementById("nebula");
   let t = 0, mx = 0, my = 0, tx = 0, ty = 0;
   function animate() {
@@ -855,7 +847,6 @@
 
   window.addEventListener("load", connectWallet);
 
-  // Auto-rescan every 2 minutes when scan data is loaded
   setInterval(() => {
     if (scanData && document.getElementById("scanBtn").textContent === "🔄 Rescan") {
       scanAll();
