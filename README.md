@@ -1,6 +1,6 @@
-# ☀️ SunPLS — Autonomous Stable Asset (Experimental)
+# ☀️ SunPLS — Autonomous Ownerless Immutable (Experimental)
 
-SunPLS is an experimental **autonomous stable asset protocol** built for PulseChain.
+SunPLS is an experimental **autonomous monetary asset protocol** built for PulseChain.
 
 The system combines:
 
