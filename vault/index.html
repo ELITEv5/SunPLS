@@ -529,7 +529,7 @@
       price = p;
       // Oracle returns: WPLS per 1 SunPLS, scaled by ORACLE_PRECISION (1e18)
       // e.g. 117870e18 means 1 SunPLS redeems for 117,870 WPLS
-      // Display as: "117.37K WPLS per SunPLS"
+      // Display as: "117.37K SunPLS per WPLS"
       const wplsPerSunPLS = Number(ethers.formatEther(p));
       let displayVal;
       if (wplsPerSunPLS >= 1_000_000) {
@@ -540,7 +540,7 @@
         displayVal = wplsPerSunPLS.toFixed(4);
       }
       document.getElementById("price").textContent =
-        displayVal + " WPLS per SunPLS";
+        displayVal + " SunPLS per WPLS";
     } catch {
       document.getElementById("price").textContent = "Oracle offline";
       price = 0n;
@@ -584,10 +584,10 @@
         limiterHitCount: s.limiterHitCount.toString()
       });
 
-      // Store R as BigInt — same precision as oracle price (WPLS per SunPLS, 1e18-scaled)
+      // Store R as BigInt — same precision as oracle price (SunPLS per WPLS, 1e18-scaled)
       currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
 
-      // R is WPLS per SunPLS, same scale as oracle price — display like price
+      // R is SunPLS per WPLS, same scale as oracle price — display like price
       const Rraw = Number(ethers.formatEther(currentR));
       let Rdisplay;
       if (Rraw >= 1_000_000) Rdisplay = (Rraw / 1_000_000).toFixed(2) + "M";
@@ -601,7 +601,7 @@
       const canTrig   = s.canTrigger;
       const limHits   = Number(s.limiterHitCount);
 
-      document.getElementById("ctrlR").textContent      = Rdisplay + " WPLS";
+      document.getElementById("ctrlR").textContent      = Rdisplay + " SunPLS/WPLS";
       document.getElementById("ctrlRate").textContent   = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
       document.getElementById("ctrlEpochs").textContent = epochs.toString();
       document.getElementById("ctrlNext").textContent   =
@@ -667,31 +667,27 @@
   }
 
   // ── Conversions ──
-  // Oracle price = WPLS per SunPLS (1e18-scaled).
-  // To find how many PLS equals a given SunPLS value:
-  //   PLS = sunplsValue / (price / DECIMALS) = sunplsValue * DECIMALS / price
-  // e.g. price=120000e18 means 1 SunPLS = 120000 PLS
-  //      so 100 SunPLS worth = 100 * DECIMALS / 120000e18 = 0.000000833 PLS ... wait
-  //      that's wrong — 1 SunPLS buys 120000 PLS worth of collateral?
-  //      No: oracle is WPLS per SunPLS = how many WPLS tokens = 1 SunPLS in the LP
-  //      Since SunPLS targets $1 and PLS ~$0.0000085, 1 SunPLS / $0.0000085 ≈ 117,000 PLS ✓
-  //      So: PLS needed for N SunPLS worth = N * price / DECIMALS
-  //      (more PLS needed when price is high because each PLS is worth less)
-  //      This IS the correct direction: price=117000e18, N=1 SunPLS → 117000 PLS ✓
+  // Oracle price = SunPLS per WPLS (1e18-scaled).
+  // Contract formula: collateralValue(SunPLS) = collateral(PLS) * price / 1e18
+  // So:
+  //   SunPLS value of N PLS  = N * price / 1e18   (multiply)
+  //   PLS needed for N SunPLS = N * 1e18 / price   (divide)
+
+  // SunPLS value → PLS wei (used for deposit amount inputs that take SunPLS value)
+  // NOTE: deposit/withdraw inputs now take raw PLS — this is only used for legacy previews
   function sunplsToPLS(sunplsVal) {
     if (!price || price === 0n) return 0n;
     const sunplsWei = ethers.parseUnits(sunplsVal.toString(), 18);
-    // price = WPLS per SunPLS, so N SunPLS worth = N * price / 1e18 PLS
-    return (sunplsWei * price) / DECIMALS;
+    return (sunplsWei * DECIMALS) / price;
   }
 
   // Raw SunPLS token amount → wei (1:1)
   function sunplsToWei(amount) { return ethers.parseUnits(amount.toString(), 18); }
 
-  // PLS wei → SunPLS value (for display)
+  // PLS wei → SunPLS value (matches contract: collateral * price / 1e18)
   function plsToSunpls(plsWei) {
     if (!price || price === 0n) return 0;
-    return Number(ethers.formatEther((plsWei * DECIMALS) / price));
+    return Number(ethers.formatEther((plsWei * price) / DECIMALS));
   }
 
   const usdToPLS    = sunplsToPLS;
@@ -712,17 +708,17 @@
       const i = await vault.vaultInfo(account);
       // vaultInfo returns: collateral, debt, collateralValueUSD, ratio, mintable,
       //                    rate, redemptionVal, liquidatable, redeemable, oracleHealthy, systemRatio
-      // ratio from vaultInfo returns basis points (15000 = 150%) — divide by 100
-      const ratioPct     = Number(i.ratio) / 100;
+      // ratio from vaultInfo returns plain percent (155 = 155%, not basis points)
+      const ratioPct     = Number(i.ratio);
       const ratioClass   = ratioPct < 150 ? "risk" : ratioPct < 170 ? "warn" : "safe";
-      const ratioDisplay = ratioPct > 100000 ? "Infinite" : ratioPct.toFixed(1) + "%";
+      const ratioDisplay = ratioPct > 1e9 ? "Infinite" : ratioPct.toFixed(1) + "%";
 
-      // redemptionVal is in same units as oracle price (WPLS per SunPLS)
+      // redemptionVal is in same units as oracle price (SunPLS per WPLS)
       const redemptionRaw = Number(ethers.formatEther(i.redemptionVal));
       let redemptionDisplay;
-      if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS";
-      else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS";
-      else redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS";
+      if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M SunPLS/WPLS";
+      else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K SunPLS/WPLS";
+      else redemptionDisplay = redemptionRaw.toFixed(4) + " SunPLS/WPLS";
 
       // collateralValueUSD is in SunPLS units (since SunPLS ≈ $1, loosely "USD")
       const collValDisplay = Number(ethers.formatEther(i.collateralValueUSD)).toFixed(2);
@@ -813,10 +809,10 @@
           wmPreview.style.color = "#10b981";
           wmBtn.disabled = false;
         } else if (i.debt > 0n && i.collateral > 0n && price > 0n) {
-          // Use collateralValueUSD (in SunPLS, R-adjusted) from vaultInfo
+          // collateralValueUSD = collateral * price / 1e18 (SunPLS value, from contract)
           // requiredCollateralValue = debt * 150 / 100  (both in SunPLS units)
           // requiredCollateral (PLS) = requiredCollateralValue * price / R
-          const collValSunPLS = i.collateralValueUSD;    // already R-adjusted by vault
+          const collValSunPLS = i.collateralValueUSD;    // = collateral * oraclePrice / 1e18
           const reqValSunPLS  = (i.debt * 150n) / 100n;  // minimum collateral value needed
           if (collValSunPLS <= reqValSunPLS) {
             wmPreview.textContent = "At minimum safe collateral — repay debt to withdraw more";
@@ -826,7 +822,7 @@
             // Excess collateral value in SunPLS, convert to PLS
             const excessValSunPLS = collValSunPLS - reqValSunPLS;
             // Excess collateral value in SunPLS, convert to PLS with 0.1% haircut for rounding safety
-            const withdrawablePLS = (excessValSunPLS * price * 999n) / (DECIMALS * 1000n);
+            const withdrawablePLS = (excessValSunPLS * DECIMALS * 999n) / (price * 1000n);
             const wdNum = Number(ethers.formatEther(withdrawablePLS));
             wmPreview.textContent = `Withdraw ≈ ${wdNum.toFixed(2)} PLS safely (vault stays at 150%)`;
             wmPreview.style.color = "#10b981";
@@ -884,9 +880,7 @@
     const plsAmt = parseFloat(document.getElementById("usdOneClick").value) || 0;
     const el  = document.getElementById("plsOneClick");
     if (!plsAmt || !price) { el.textContent = ""; return; }
-    // SunPLS value of deposit = PLS * price / DECIMALS (inverted oracle)
-    // Wait — price = WPLS per SunPLS, so SunPLS value of N PLS = N / price * DECIMALS
-    // = plsWei * DECIMALS / price = plsToSunpls(plsWei)
+    // SunPLS value of deposit = PLS * price / 1e18 (contract formula: collateralValue = collateral * price / 1e18)
     const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
     // At 155% auto-mint ratio, minted SunPLS = collateral_value / 1.55
     const mintAmt   = sunplsVal / 1.55;
@@ -1073,13 +1067,13 @@
         await (await vault.withdrawPLS(info.collateral)).wait();
         statusEl.textContent = `Withdrew all ${Number(ethers.formatEther(info.collateral)).toFixed(2)} PLS`;
       } else {
-        // Use R-adjusted collateral value from vaultInfo
+        // collateralValueUSD = collateral * price / 1e18
         const collValSunPLS = info.collateralValueUSD;
         const reqValSunPLS  = (info.debt * 150n) / 100n;
         if (collValSunPLS <= reqValSunPLS) throw new Error("Already at minimum safe collateral — repay debt first");
         const excessVal       = collValSunPLS - reqValSunPLS;
         // 0.1% haircut to avoid rounding rejects at contract boundary
-        const withdrawablePLS = (excessVal * price * 999n) / (DECIMALS * 1000n);
+        const withdrawablePLS = (excessVal * DECIMALS * 999n) / (price * 1000n);
         if (withdrawablePLS === 0n) throw new Error("Withdrawable amount rounds to zero");
         await (await vault.withdrawPLS(withdrawablePLS)).wait();
         statusEl.textContent = `Withdrew ${Number(ethers.formatEther(withdrawablePLS)).toFixed(2)} PLS — vault still safe!`;
@@ -1090,7 +1084,7 @@
   document.getElementById("riskBtn").onclick = () =>
     withLoading(document.getElementById("riskBtn"), async () => {
       const info = await vault.vaultInfo(account);
-      const ratioPct = Number(info.ratio) / 100;
+      const ratioPct = Number(info.ratio);
       const el = document.getElementById("riskText");
       if (info.liquidatable) {
         el.innerHTML = `<span style="color:#ef4444">⚠️ LIQUIDATABLE NOW — ratio ${ratioPct.toFixed(1)}% — act immediately!</span>`;
@@ -1197,7 +1191,7 @@
       <h4>🔄 Redemption System</h4>
       <ul>
         <li>SunPLS can be redeemed for PLS from any eligible vault</li>
-        <li>R = the controller's redemption value (in WPLS per SunPLS) — adjusts each epoch based on peg deviation</li>
+        <li>R = the controller's redemption value (in SunPLS per WPLS) — adjusts each epoch based on peg deviation</li>
         <li>Small fee goes to the vault owner whose collateral is redeemed</li>
         <li>Vaults must be above the redemption ratio to be eligible</li>
         <li>Spread between oracle spot and R tells you where SunPLS is trading vs peg</li>
