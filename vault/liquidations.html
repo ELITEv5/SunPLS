@@ -347,46 +347,73 @@
       for (const owner of owners) {
         try {
           const info = await vault.vaultInfo(owner);
-          // vaultInfo: collateral, debt, collateralValueUSD, ratio, mintable,
-          //             rate, redemptionVal, liquidatable, redeemable, oracleHealthy, systemRatio
-          const ratio    = Number(info.ratio);
+          // ratio returns basis points (15000 = 150%) — divide by 100
+          const ratioPct = Number(info.ratio) / 100;
           const debt     = Number(ethers.formatEther(info.debt));
           if (debt === 0) continue;
 
+          // redemptionVal in WPLS/SunPLS — format with K/M
+          const redemptionRaw = Number(ethers.formatEther(info.redemptionVal));
+          let redemptionDisplay;
+          if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS";
+          else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS";
+          else redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS";
+
+          // collateralValueUSD is actually in SunPLS units
+          const collValSunPLS = Number(ethers.formatEther(info.collateralValueUSD));
+
+          // Format large PLS amounts
+          const collPLS = Number(ethers.formatEther(info.collateral));
+          let collDisplay;
+          if (collPLS >= 1e9) collDisplay = (collPLS/1e9).toFixed(2) + "B";
+          else if (collPLS >= 1e6) collDisplay = (collPLS/1e6).toFixed(2) + "M";
+          else if (collPLS >= 1e3) collDisplay = (collPLS/1e3).toFixed(2) + "K";
+          else collDisplay = collPLS.toFixed(2);
+
           const vd = {
             owner,
-            ratio,
+            ratio:         ratioPct,
             debt,
-            collateral:    Number(ethers.formatEther(info.collateral)),
-            collateralUSD: Number(ethers.formatEther(info.collateralValueUSD)),
+            collateral:    collPLS,
+            collateralDisplay: collDisplay,
+            collateralSunPLS:  collValSunPLS,
             mintable:      Number(ethers.formatEther(info.mintable)),
-            redemptionVal: Number(ethers.formatEther(info.redemptionVal)),
+            redemptionDisplay,
+            redemptionRaw,
             isLiquidatable: info.liquidatable,
             isRedeemable:   info.redeemable,
             oracleHealthy:  info.oracleHealthy
           };
 
-          if (vd.isLiquidatable || ratio < 110) {
-            // Get liquidation info
-            const liqInfo = await vault.liquidationInfo(owner);
-            vd.minRepay  = Number(ethers.formatEther(liqInfo.minRepay));
-            vd.reward    = Number(ethers.formatEther(liqInfo.reward));
-            vd.bonusBps  = Number(liqInfo.bonusBps);
+          if (vd.isLiquidatable || ratioPct < 110) {
+            // Get liquidation params — graceful fallback if liquidationInfo fn doesn't exist
+            try {
+              const liqInfo = await vault.liquidationInfo(owner);
+              vd.minRepay  = Number(ethers.formatEther(liqInfo.minRepay));
+              vd.reward    = Number(ethers.formatEther(liqInfo.reward));
+              vd.bonusBps  = Number(liqInfo.bonusBps);
+            } catch {
+              vd.minRepay  = debt * 0.20;
+              vd.reward    = 0;
+              vd.bonusBps  = 0;
+            }
 
-            // Estimate profit
-            const gasEst  = 150000n;
-            const feeData = await provider.getFeeData();
+            // Profit in SunPLS units: reward(PLS) / (price/1e18) - gasCost(PLS) / (price/1e18)
+            // price = WPLS per SunPLS (1e18-scaled), so price/1e18 = PLS per SunPLS
+            const gasEst     = 150000n;
+            const feeData    = await provider.getFeeData();
             const gasCostWei = gasEst * (feeData.gasPrice || 1000000n);
             const gasCostPLS = Number(ethers.formatEther(gasCostWei));
-            const rewardUSD  = vd.reward * (Number(price)/1e18);
-            const gasCostUSD = gasCostPLS * (Number(price)/1e18);
-            vd.profitUSD    = rewardUSD - gasCostUSD;
-            vd.isProfitable = vd.profitUSD > 0;
+            const plsPerSunPLS = price > 0n ? Number(price) / 1e18 : 1;
+            const rewardSunPLS = vd.reward / plsPerSunPLS;
+            const gasSunPLS    = gasCostPLS / plsPerSunPLS;
+            vd.profitSunPLS = rewardSunPLS - gasSunPLS;
+            vd.isProfitable = vd.profitSunPLS > 0;
 
             liquidatable.push(vd);
           } else if (vd.isRedeemable) {
             redeemable.push(vd);
-          } else if (ratio < 150) {
+          } else if (ratioPct < 150) {
             risky.push(vd);
           } else {
             healthy.push(vd);
@@ -398,7 +425,7 @@
         }
       }
 
-      liquidatable.sort((a,b) => b.profitUSD - a.profitUSD);
+      liquidatable.sort((a,b) => b.profitSunPLS - a.profitSunPLS);
       redeemable.sort((a,b) => a.ratio - b.ratio);
       risky.sort((a,b) => a.ratio - b.ratio);
 
@@ -468,19 +495,19 @@
               </div>
               <div class="info-row">
                 <span class="label">Health Ratio:</span>
-                <span class="value risk">${v.ratio > 1e6 ? 'Infinite' : v.ratio.toFixed(2) + '%'} 🔴</span>
+                <span class="value risk">${v.ratio > 100000 ? 'Infinite' : v.ratio.toFixed(1) + '%'} 🔴</span>
               </div>
               <div class="info-row">
                 <span class="label">Total Debt:</span>
-                <span class="value">${v.debt.toFixed(2)} SunPLS</span>
+                <span class="value">${v.debt.toFixed(4)} SunPLS</span>
               </div>
               <div class="info-row">
                 <span class="label">Min Repay (20%):</span>
-                <span class="value">${v.minRepay.toFixed(6)} SunPLS</span>
+                <span class="value">${v.minRepay.toFixed(4)} SunPLS</span>
               </div>
               <div class="info-row">
                 <span class="label">Collateral Reward:</span>
-                <span class="value">${v.reward.toFixed(4)} PLS</span>
+                <span class="value">${v.reward.toFixed(2)} PLS</span>
               </div>
               <div class="info-row">
                 <span class="label">Bonus:</span>
@@ -489,7 +516,7 @@
               <div class="info-row">
                 <span class="label">Est. Profit:</span>
                 <span class="value ${v.isProfitable ? 'safe' : 'risk'}">
-                  ${v.isProfitable ? '$' + v.profitUSD.toFixed(4) + ' 💰' : 'Unprofitable (gas too high)'}
+                  ${v.isProfitable ? '~' + v.profitSunPLS.toFixed(4) + ' SunPLS value 💰' : 'Unprofitable (gas too high)'}
                 </span>
               </div>
               <div class="info-row">
@@ -524,19 +551,19 @@
               </div>
               <div class="info-row">
                 <span class="label">Health Ratio:</span>
-                <span class="value safe">${v.ratio.toFixed(2)}%</span>
+                <span class="value safe">${v.ratio.toFixed(1)}%</span>
               </div>
               <div class="info-row">
                 <span class="label">Debt:</span>
-                <span class="value">${v.debt.toFixed(2)} SunPLS</span>
+                <span class="value">${v.debt.toFixed(4)} SunPLS</span>
               </div>
               <div class="info-row">
                 <span class="label">Collateral:</span>
-                <span class="value">${v.collateral.toFixed(0)} PLS (~$${v.collateralUSD.toFixed(2)})</span>
+                <span class="value">${v.collateralDisplay} PLS (≈${v.collateralSunPLS.toFixed(2)} SunPLS value)</span>
               </div>
               <div class="info-row">
                 <span class="label">Redemption R:</span>
-                <span class="value" style="color:#5eead4">${v.redemptionVal.toFixed(4)}</span>
+                <span class="value" style="color:#5eead4">${v.redemptionDisplay}</span>
               </div>
             </div>
             <div style="background:rgba(20,184,166,0.1);border-radius:8px;padding:10px;margin-top:10px">
@@ -575,7 +602,7 @@
         </div>
       `;
       for (const v of data) {
-        const buf = v.ratio - 110;
+        const buf = (v.ratio - 110).toFixed(1);
         html += `
           <div class="card warning">
             <div class="info-grid">
@@ -585,23 +612,23 @@
               </div>
               <div class="info-row">
                 <span class="label">Health Ratio:</span>
-                <span class="value warn">${v.ratio.toFixed(2)}% ⚠️</span>
+                <span class="value warn">${v.ratio.toFixed(1)}% ⚠️</span>
               </div>
               <div class="info-row">
                 <span class="label">Buffer Above Liquidation:</span>
-                <span class="value warn">${buf.toFixed(2)}%</span>
+                <span class="value warn">${buf}%</span>
               </div>
               <div class="info-row">
                 <span class="label">Debt:</span>
-                <span class="value">${v.debt.toFixed(2)} SunPLS</span>
+                <span class="value">${v.debt.toFixed(4)} SunPLS</span>
               </div>
               <div class="info-row">
                 <span class="label">Collateral:</span>
-                <span class="value">${v.collateral.toFixed(0)} PLS (~$${v.collateralUSD.toFixed(2)})</span>
+                <span class="value">${v.collateralDisplay} PLS (≈${v.collateralSunPLS.toFixed(2)} SunPLS value)</span>
               </div>
             </div>
             <div style="text-align:center;margin-top:8px;padding:8px;background:rgba(245,158,11,0.1);border-radius:6px;font-size:0.82em;color:#fbbf24">
-              Becomes liquidatable if PLS drops ${buf.toFixed(1)}% or debt increases
+              Becomes liquidatable if PLS drops ~${buf}% more or debt increases
             </div>
           </div>
         `;
@@ -626,19 +653,19 @@
               </div>
               <div class="info-row">
                 <span class="label">Health Ratio:</span>
-                <span class="value safe">${v.ratio > 1e6 ? 'Infinite ♾️' : v.ratio.toFixed(2) + '% ✅'}</span>
+                <span class="value safe">${v.ratio > 100000 ? 'Infinite ♾️' : v.ratio.toFixed(1) + '% ✅'}</span>
               </div>
               <div class="info-row">
                 <span class="label">Debt:</span>
-                <span class="value">${v.debt.toFixed(2)} SunPLS</span>
+                <span class="value">${v.debt.toFixed(4)} SunPLS</span>
               </div>
               <div class="info-row">
                 <span class="label">Collateral:</span>
-                <span class="value">${v.collateral.toFixed(0)} PLS (~$${v.collateralUSD.toFixed(2)})</span>
+                <span class="value">${v.collateralDisplay} PLS (≈${v.collateralSunPLS.toFixed(2)} SunPLS value)</span>
               </div>
               <div class="info-row">
                 <span class="label">Can Still Mint:</span>
-                <span class="value safe">${v.mintable.toFixed(2)} SunPLS</span>
+                <span class="value safe">${v.mintable.toFixed(4)} SunPLS</span>
               </div>
             </div>
           </div>
@@ -691,8 +718,11 @@
       const prev = await vault.redemptionPreview(ownerAddress, amt);
       if (!prev.eligible) throw new Error("Vault not eligible for redemption");
 
-      btn.textContent = "⏳ Approving...";
-      await (await token.approve(VAULT_ADDR, amt)).wait();
+      const allowance = await token.allowance(account, VAULT_ADDR);
+      if (allowance < amt) {
+        btn.textContent = "⏳ Approving...";
+        await (await token.approve(VAULT_ADDR, amt)).wait();
+      }
 
       btn.textContent = "⏳ Redeeming...";
       await (await vault.redeem(amt, ownerAddress)).wait();
@@ -723,9 +753,8 @@
       const liqInfo = await vault.liquidationInfo(ownerAddress);
       const minRepay = liqInfo.minRepay;
 
-      // Add 1% buffer for interest accrual
+      // Add 1% buffer for interest accrual between scan and tx
       const minRepayBuffered = (minRepay * 10100n) / 10000n;
-      const approvalAmt      = (minRepayBuffered * 10050n) / 10000n;
 
       btn.textContent = "⏳ Checking balance...";
       const balance = await token.balanceOf(account);
@@ -736,7 +765,11 @@
       }
 
       btn.textContent = "⏳ Approving...";
-      await (await token.approve(VAULT_ADDR, approvalAmt)).wait();
+      // Check allowance first to avoid unnecessary approve tx
+      const allowance = await token.allowance(account, VAULT_ADDR);
+      if (allowance < minRepayBuffered) {
+        await (await token.approve(VAULT_ADDR, minRepayBuffered)).wait();
+      }
 
       btn.textContent = "⏳ Liquidating...";
       const liqTx = await vault.liquidate(ownerAddress, minRepayBuffered);
