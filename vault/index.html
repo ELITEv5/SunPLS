@@ -264,7 +264,7 @@
 
     <!-- 1-Click Auto Mint -->
     <div class="card highlight">
-      <input id="usdOneClick" type="number" step="0.01" placeholder="SunPLS value to deposit (≈ USD)" />
+      <input id="usdOneClick" type="number" step="1" placeholder="PLS amount to deposit & auto-mint" />
       <div class="preview" id="plsOneClick"></div>
       <button class="btn" id="oneClickBtn" disabled>1-Click Auto Mint</button>
       <div class="helper">Easiest method: deposit PLS and mint SunPLS in one transaction at 155% ratio</div>
@@ -272,7 +272,7 @@
 
     <!-- Deposit PLS -->
     <div class="card">
-      <input id="usdIn" type="number" step="0.01" placeholder="SunPLS value of PLS to deposit (≈ USD)" />
+      <input id="usdIn" type="number" step="1" placeholder="PLS amount to deposit" />
       <div class="preview" id="plsOut"></div>
       <button class="btn" id="depositBtn" disabled>Deposit PLS</button>
       <div class="helper">Lock PLS collateral (starts 5-min withdrawal cooldown)</div>
@@ -281,6 +281,7 @@
     <!-- Mint SunPLS -->
     <div class="card">
       <input id="usdMint" type="number" step="0.01" placeholder="SunPLS tokens to mint" />
+      <div class="preview" id="mintPreview"></div>
       <button class="btn" id="mintBtn" disabled>Mint SunPLS</button>
       <div class="helper">Create SunPLS against existing collateral (min 150% ratio enforced)</div>
     </div>
@@ -295,6 +296,7 @@
     <!-- Repay Debt -->
     <div class="card">
       <input id="usdRepay" type="number" step="0.01" placeholder="SunPLS tokens to repay" />
+      <div class="preview" id="repayPreview"></div>
       <button class="btn" id="repayBtn" disabled>Repay Debt</button>
       <div class="helper">Burn SunPLS to reduce debt (instant, no cooldown)</div>
     </div>
@@ -316,10 +318,10 @@
 
     <!-- Withdraw PLS -->
     <div class="card">
-      <input id="usdOut" type="number" step="0.01" placeholder="SunPLS value of PLS to withdraw (≈ USD)" />
+      <input id="usdOut" type="number" step="1" placeholder="PLS amount to withdraw" />
       <div class="preview" id="plsIn"></div>
       <button class="btn" id="withdrawBtn" disabled>Withdraw PLS</button>
-      <div class="helper">Remove collateral (ratio must stay above 150%, 5-min cooldown after deposit)</div>
+      <div class="helper">Remove collateral — ratio must stay above 150%, 5-min cooldown after deposit</div>
     </div>
 
     <!-- Withdraw Max Safe -->
@@ -497,6 +499,7 @@
       document.querySelectorAll(".btn").forEach(b => { if (!b.id.startsWith("trigger") && !b.id.startsWith("update")) b.disabled = false; });
 
       await detectOraclePrecision();
+      await fetchCooldown();
       await Promise.all([updatePrice(), loadVault(), loadGlobalStats(), loadControllerState()]);
       setInterval(updatePrice, 60000);
       setInterval(loadControllerState, 30000);
@@ -512,16 +515,12 @@
 
   // ── Oracle: get price via peek() ──
   // Oracle PRECISION constant (fetched once on connect, defaults to 1e18)
-  let ORACLE_PRECISION = 10n ** 18n;
-
   async function detectOraclePrecision() {
     try {
+      // Fetch PRECISION to confirm scale — log it but we use DECIMALS (1e18) throughout
       const p = await oracle.PRECISION();
-      ORACLE_PRECISION = p;
-      console.log("Oracle PRECISION:", p.toString());
-    } catch {
-      ORACLE_PRECISION = 10n ** 18n; // safe default
-    }
+      console.log("Oracle PRECISION confirmed:", p.toString());
+    } catch { /* non-critical */ }
   }
 
   async function updatePrice() {
@@ -636,10 +635,19 @@
       ]);
       const collNum   = Number(ethers.formatEther(totalColl));
       const debtNum   = Number(ethers.formatEther(totalDebt));
-      const healthNum = Number(health);
+      // systemHealth returns basis points (e.g. 15000 = 150%) — divide by 100
+      const healthNum = Number(health) / 100;
 
-      document.getElementById("totalColl").textContent = collNum.toFixed(0) + " PLS";
-      document.getElementById("totalDebt").textContent = debtNum.toFixed(0) + " SunPLS";
+      // Format large PLS/SunPLS numbers with K/M/B
+      function fmtBig(n) {
+        if (n >= 1e9) return (n/1e9).toFixed(2) + "B";
+        if (n >= 1e6) return (n/1e6).toFixed(2) + "M";
+        if (n >= 1e3) return (n/1e3).toFixed(2) + "K";
+        return n.toFixed(2);
+      }
+
+      document.getElementById("totalColl").textContent = fmtBig(collNum) + " PLS";
+      document.getElementById("totalDebt").textContent = fmtBig(debtNum) + " SunPLS";
       const hEl = document.getElementById("sysHealth");
       hEl.textContent  = healthNum.toFixed(1) + "%";
       hEl.className    = "value " + (healthNum < 130 ? "risk" : healthNum < 150 ? "warn" : "safe");
@@ -659,23 +667,44 @@
   }
 
   // ── Conversions ──
-  // Oracle price = WPLS per SunPLS (1e18-scaled). R = same units.
-  // To convert a SunPLS token amount to PLS wei:
-  //   PLS = sunplsTokens * price / DECIMALS
-  //   (price already tells us how many WPLS = 1 SunPLS)
-  // For deposit inputs where user enters a "SunPLS value amount":
-  //   PLS needed = sunplsValue * price / DECIMALS  (same formula, oracle is the bridge)
+  // Oracle price = WPLS per SunPLS (1e18-scaled).
+  // To find how many PLS equals a given SunPLS value:
+  //   PLS = sunplsValue / (price / DECIMALS) = sunplsValue * DECIMALS / price
+  // e.g. price=120000e18 means 1 SunPLS = 120000 PLS
+  //      so 100 SunPLS worth = 100 * DECIMALS / 120000e18 = 0.000000833 PLS ... wait
+  //      that's wrong — 1 SunPLS buys 120000 PLS worth of collateral?
+  //      No: oracle is WPLS per SunPLS = how many WPLS tokens = 1 SunPLS in the LP
+  //      Since SunPLS targets $1 and PLS ~$0.0000085, 1 SunPLS / $0.0000085 ≈ 117,000 PLS ✓
+  //      So: PLS needed for N SunPLS worth = N * price / DECIMALS
+  //      (more PLS needed when price is high because each PLS is worth less)
+  //      This IS the correct direction: price=117000e18, N=1 SunPLS → 117000 PLS ✓
   function sunplsToPLS(sunplsVal) {
     if (!price || price === 0n) return 0n;
     const sunplsWei = ethers.parseUnits(sunplsVal.toString(), 18);
+    // price = WPLS per SunPLS, so N SunPLS worth = N * price / 1e18 PLS
     return (sunplsWei * price) / DECIMALS;
   }
 
-  // Raw SunPLS token amount → wei (1:1, no conversion needed)
+  // Raw SunPLS token amount → wei (1:1)
   function sunplsToWei(amount) { return ethers.parseUnits(amount.toString(), 18); }
+
+  // PLS wei → SunPLS value (for display)
+  function plsToSunpls(plsWei) {
+    if (!price || price === 0n) return 0;
+    return Number(ethers.formatEther((plsWei * DECIMALS) / price));
+  }
 
   const usdToPLS    = sunplsToPLS;
   const usdToSunPLS = sunplsToWei;
+
+  // Dynamic cooldown — read from contract, fallback 300s
+  let WITHDRAW_COOLDOWN_SECS = 300;
+  async function fetchCooldown() {
+    try {
+      const c = await vault.WITHDRAW_COOLDOWN();
+      WITHDRAW_COOLDOWN_SECS = Number(c);
+    } catch { WITHDRAW_COOLDOWN_SECS = 300; }
+  }
 
   // ── Load Vault Data ──
   async function loadVault() {
@@ -683,36 +712,42 @@
       const i = await vault.vaultInfo(account);
       // vaultInfo returns: collateral, debt, collateralValueUSD, ratio, mintable,
       //                    rate, redemptionVal, liquidatable, redeemable, oracleHealthy, systemRatio
-      const ratio = Number(i.ratio);
-      const ratioClass   = ratio < 150 ? "risk" : ratio < 170 ? "warn" : "safe";
-      const ratioDisplay = ratio > 1e6 ? "Infinite" : ratio.toFixed(2) + "%";
-      const rateNum = Number(i.rate);
-      const redemptionNum = Number(ethers.formatEther(i.redemptionVal));
+      // ratio from vaultInfo returns basis points (15000 = 150%) — divide by 100
+      const ratioPct     = Number(i.ratio) / 100;
+      const ratioClass   = ratioPct < 150 ? "risk" : ratioPct < 170 ? "warn" : "safe";
+      const ratioDisplay = ratioPct > 100000 ? "Infinite" : ratioPct.toFixed(1) + "%";
+
+      // redemptionVal is in same units as oracle price (WPLS per SunPLS)
+      const redemptionRaw = Number(ethers.formatEther(i.redemptionVal));
+      let redemptionDisplay;
+      if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS";
+      else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS";
+      else redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS";
+
+      // collateralValueUSD is in SunPLS units (since SunPLS ≈ $1, loosely "USD")
+      const collValDisplay = Number(ethers.formatEther(i.collateralValueUSD)).toFixed(2);
 
       statsEl.innerHTML = `
         <div class="stat">
           <div class="label">Collateral</div>
-          <div class="value">${Math.round(Number(ethers.formatEther(i.collateral)))} PLS</div>
+          <div class="value">${Number(ethers.formatEther(i.collateral)).toLocaleString(undefined,{maximumFractionDigits:0})} PLS</div>
         </div>
         <div class="stat">
           <div class="label">Debt</div>
-          <div class="value">${Number(ethers.formatEther(i.debt)).toFixed(2)} SunPLS</div>
+          <div class="value">${Number(ethers.formatEther(i.debt)).toFixed(4)} SunPLS</div>
         </div>
         <div class="stat">
           <div class="label">Ratio</div>
           <div class="value ${ratioClass}">${ratioDisplay}</div>
+          <div class="value">${Number(ethers.formatEther(i.mintable)).toFixed(4)} SunPLS</div>
         </div>
         <div class="stat">
-          <div class="label">Can Mint</div>
-          <div class="value">${Number(ethers.formatEther(i.mintable)).toFixed(2)} SunPLS</div>
-        </div>
-        <div class="stat">
-          <div class="label">Collateral USD</div>
-          <div class="value">$${Number(ethers.formatEther(i.collateralValueUSD)).toFixed(2)}</div>
+          <div class="label">Collateral Value</div>
+          <div class="value">${collValDisplay} SunPLS</div>
         </div>
         <div class="stat">
           <div class="label">Redemption R</div>
-          <div class="value">${redemptionNum.toFixed(4)}</div>
+          <div class="value">${redemptionDisplay}</div>
         </div>
         <div class="stat">
           <div class="label">Liquidatable</div>
@@ -761,7 +796,7 @@
       const wmCooldown = document.getElementById("withdrawCooldownWarning");
       const vData      = await vault.vaults(account);
       const now        = Math.floor(Date.now()/1000);
-      const coolLeft   = 300 - (now - Number(vData.lastDepositTime));
+      const coolLeft   = WITHDRAW_COOLDOWN_SECS - (now - Number(vData.lastDepositTime));
 
       if (coolLeft > 0) {
         wmCooldown.style.display = "block";
@@ -790,8 +825,8 @@
           } else {
             // Excess collateral value in SunPLS, convert to PLS
             const excessValSunPLS = collValSunPLS - reqValSunPLS;
-            // Convert excess SunPLS value back to PLS: PLS = excessVal * price / DECIMALS
-            const withdrawablePLS = (excessValSunPLS * price) / DECIMALS;
+            // Excess collateral value in SunPLS, convert to PLS with 0.1% haircut for rounding safety
+            const withdrawablePLS = (excessValSunPLS * price * 999n) / (DECIMALS * 1000n);
             const wdNum = Number(ethers.formatEther(withdrawablePLS));
             wmPreview.textContent = `Withdraw ≈ ${wdNum.toFixed(2)} PLS safely (vault stays at 150%)`;
             wmPreview.style.color = "#10b981";
@@ -832,30 +867,67 @@
 
   // ── Live Input Previews ──
   document.getElementById("usdIn").addEventListener("input", () => {
-    const val = parseFloat(document.getElementById("usdIn").value) || 0;
+    const plsAmt = parseFloat(document.getElementById("usdIn").value) || 0;
     const el  = document.getElementById("plsOut");
-    if (!val || !price) { el.textContent = ""; return; }
-    const pls = Number(ethers.formatEther(sunplsToPLS(val)));
-    el.textContent = `≈ ${pls.toLocaleString(undefined,{maximumFractionDigits:0})} PLS`;
+    if (!plsAmt || !price) { el.textContent = ""; return; }
+    const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
+    el.textContent = `≈ ${sunplsVal.toFixed(4)} SunPLS value`;
   });
   document.getElementById("usdOut").addEventListener("input", () => {
-    const val = parseFloat(document.getElementById("usdOut").value) || 0;
+    const plsAmt = parseFloat(document.getElementById("usdOut").value) || 0;
     const el  = document.getElementById("plsIn");
-    if (!val || !price) { el.textContent = ""; return; }
-    const pls = Number(ethers.formatEther(sunplsToPLS(val)));
-    el.textContent = `≈ ${pls.toLocaleString(undefined,{maximumFractionDigits:0})} PLS`;
+    if (!plsAmt || !price) { el.textContent = ""; return; }
+    const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
+    el.textContent = `≈ ${sunplsVal.toFixed(4)} SunPLS value`;
   });
   document.getElementById("usdOneClick").addEventListener("input", () => {
-    const val = parseFloat(document.getElementById("usdOneClick").value) || 0;
+    const plsAmt = parseFloat(document.getElementById("usdOneClick").value) || 0;
     const el  = document.getElementById("plsOneClick");
-    if (!val || !price) { el.textContent = ""; return; }
-    const pls     = Number(ethers.formatEther(sunplsToPLS(val)));
-    // At 155% ratio: mintable SunPLS = depositValueInSunPLS / 1.55
-    const mintAmt = val / 1.55;
-    el.textContent = `≈ ${pls.toLocaleString(undefined,{maximumFractionDigits:0})} PLS → ${mintAmt.toFixed(4)} SunPLS (155%)`;
+    if (!plsAmt || !price) { el.textContent = ""; return; }
+    // SunPLS value of deposit = PLS * price / DECIMALS (inverted oracle)
+    // Wait — price = WPLS per SunPLS, so SunPLS value of N PLS = N / price * DECIMALS
+    // = plsWei * DECIMALS / price = plsToSunpls(plsWei)
+    const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
+    // At 155% auto-mint ratio, minted SunPLS = collateral_value / 1.55
+    const mintAmt   = sunplsVal / 1.55;
+    el.textContent  = `≈ ${sunplsVal.toFixed(2)} SunPLS value → mints ${mintAmt.toFixed(4)} SunPLS (at 155%)`;
   });
 
-  // Redemption preview on input change
+  // Mint input preview — show ratio impact
+  document.getElementById("usdMint").addEventListener("input", async () => {
+    const val = parseFloat(document.getElementById("usdMint").value) || 0;
+    const el  = document.getElementById("mintPreview");
+    if (!el) return;
+    if (!val || !account) { el.textContent = ""; return; }
+    try {
+      const info = await vault.vaultInfo(account);
+      if (info.collateral === 0n) { el.textContent = "No collateral deposited"; return; }
+      const newDebt = info.debt + ethers.parseUnits(val.toString(), 18);
+      // newRatio = collateralValueUSD / newDebt * 100 (both in SunPLS units)
+      const newRatioPct = Number(info.collateralValueUSD) / Number(newDebt) * 100;
+      const col = newRatioPct < 150 ? "#ef4444" : newRatioPct < 170 ? "#fbbf24" : "#10b981";
+      el.innerHTML = `<span style="color:${col}">New ratio ≈ ${newRatioPct.toFixed(1)}% ${newRatioPct < 150 ? "⚠️ UNSAFE" : "✅"}</span>`;
+    } catch { el.textContent = ""; }
+  });
+
+  // Repay input preview — show remaining debt
+  document.getElementById("usdRepay").addEventListener("input", async () => {
+    const val = parseFloat(document.getElementById("usdRepay").value) || 0;
+    const el  = document.getElementById("repayPreview");
+    if (!el) return;
+    if (!val || !account) { el.textContent = ""; return; }
+    try {
+      const info = await vault.vaultInfo(account);
+      const repayWei = ethers.parseUnits(val.toString(), 18);
+      if (repayWei > info.debt) {
+        el.innerHTML = `<span style="color:#fbbf24">⚠️ Exceeds debt of ${Number(ethers.formatEther(info.debt)).toFixed(4)} SunPLS</span>`;
+      } else {
+        const remaining = info.debt - repayWei;
+        el.textContent = `Remaining debt: ${Number(ethers.formatEther(remaining)).toFixed(4)} SunPLS`;
+        el.style.color = "#a3e635";
+      }
+    } catch { el.textContent = ""; }
+  });
   async function updateRedeemPreview() {
     const amtStr    = document.getElementById("redeemAmount").value;
     const targetStr = document.getElementById("redeemTarget").value;
@@ -907,20 +979,20 @@
 
   // ── Button Handlers ──
 
-  // 1-Click Auto Mint
+  // 1-Click Auto Mint — input is raw PLS amount
   document.getElementById("oneClickBtn").onclick = () =>
     withLoading(document.getElementById("oneClickBtn"), async () => {
-      const usd = parseFloat(document.getElementById("usdOneClick").value);
-      if (!usd || usd <= 0) throw new Error("Enter amount");
-      await (await vault.depositAndAutoMintPLS({ value: usdToPLS(usd) })).wait();
+      const plsAmt = parseFloat(document.getElementById("usdOneClick").value);
+      if (!plsAmt || plsAmt <= 0) throw new Error("Enter PLS amount");
+      await (await vault.depositAndAutoMintPLS({ value: ethers.parseUnits(plsAmt.toString(), 18) })).wait();
     });
 
-  // Deposit PLS
+  // Deposit PLS — input is raw PLS amount
   document.getElementById("depositBtn").onclick = () =>
     withLoading(document.getElementById("depositBtn"), async () => {
-      const usd = parseFloat(document.getElementById("usdIn").value);
-      if (!usd || usd <= 0) throw new Error("Enter amount");
-      await (await vault.depositPLS({ value: usdToPLS(usd) })).wait();
+      const plsAmt = parseFloat(document.getElementById("usdIn").value);
+      if (!plsAmt || plsAmt <= 0) throw new Error("Enter PLS amount");
+      await (await vault.depositPLS({ value: ethers.parseUnits(plsAmt.toString(), 18) })).wait();
     });
 
   // Mint SunPLS
@@ -945,7 +1017,10 @@
       const usd = parseFloat(document.getElementById("usdRepay").value);
       if (!usd || usd <= 0) throw new Error("Enter amount");
       const amt = usdToSunPLS(usd);
-      await (await token.approve(VAULT_ADDR, amt)).wait();
+      const allowance = await token.allowance(account, VAULT_ADDR);
+      if (allowance < amt) {
+        await (await token.approve(VAULT_ADDR, amt)).wait();
+      }
       await (await vault.repay(amt)).wait();
     });
 
@@ -954,29 +1029,34 @@
     withLoading(document.getElementById("repayToSafeBtn"), async () => {
       const needed = await vault.repayToHealth(account);
       if (needed === 0n) throw new Error("Already safe at 150%+");
-      await (await token.approve(VAULT_ADDR, needed)).wait();
+      // 0.5% buffer — interest ticks between view call and repay tx
+      const approveAmt = (needed * 10050n) / 10000n;
+      const allowance  = await token.allowance(account, VAULT_ADDR);
+      if (allowance < approveAmt) {
+        await (await token.approve(VAULT_ADDR, approveAmt)).wait();
+      }
       await (await vault.repay(needed)).wait();
-      statusEl.textContent = `Repaid ${ethers.formatEther(needed)} SunPLS — now at 150%`;
+      statusEl.textContent = `Repaid ${Number(ethers.formatEther(needed)).toFixed(4)} SunPLS — vault now at 150%`;
     });
 
   // Repay All & Withdraw
   document.getElementById("repayAllBtn").onclick = () =>
     withLoading(document.getElementById("repayAllBtn"), async () => {
       const info = await vault.vaultInfo(account);
+      if (info.collateral === 0n) throw new Error("No collateral to withdraw");
       if (info.debt > 0n) {
-        // approve full debt + small buffer for interest accrual
-        const approveAmt = (info.debt * 10100n) / 10000n;
-        await (await token.approve(VAULT_ADDR, approveAmt)).wait();
+        // maxUint256 approval — repayAndWithdrawAll burns exact accrued debt
+        await (await token.approve(VAULT_ADDR, ethers.MaxUint256)).wait();
       }
       await (await vault.repayAndWithdrawAll()).wait();
     });
 
-  // Withdraw PLS
+  // Withdraw PLS — input is raw PLS amount
   document.getElementById("withdrawBtn").onclick = () =>
     withLoading(document.getElementById("withdrawBtn"), async () => {
-      const usd = parseFloat(document.getElementById("usdOut").value);
-      if (!usd || usd <= 0) throw new Error("Enter amount");
-      await (await vault.withdrawPLS(usdToPLS(usd))).wait();
+      const plsAmt = parseFloat(document.getElementById("usdOut").value);
+      if (!plsAmt || plsAmt <= 0) throw new Error("Enter PLS amount");
+      await (await vault.withdrawPLS(ethers.parseUnits(plsAmt.toString(), 18))).wait();
     });
 
   // Withdraw Max Safe
@@ -985,7 +1065,7 @@
       const info  = await vault.vaultInfo(account);
       const vData = await vault.vaults(account);
       const now   = Math.floor(Date.now()/1000);
-      const cool  = 300 - (now - Number(vData.lastDepositTime));
+      const cool  = WITHDRAW_COOLDOWN_SECS - (now - Number(vData.lastDepositTime));
       if (cool > 0) throw new Error(`Cooldown active — wait ${Math.ceil(cool/60)} more minute(s)`);
       if (info.collateral === 0n) throw new Error("No collateral to withdraw");
 
@@ -998,20 +1078,27 @@
         const reqValSunPLS  = (info.debt * 150n) / 100n;
         if (collValSunPLS <= reqValSunPLS) throw new Error("Already at minimum safe collateral — repay debt first");
         const excessVal       = collValSunPLS - reqValSunPLS;
-        const withdrawablePLS = (excessVal * price) / DECIMALS;
+        // 0.1% haircut to avoid rounding rejects at contract boundary
+        const withdrawablePLS = (excessVal * price * 999n) / (DECIMALS * 1000n);
         if (withdrawablePLS === 0n) throw new Error("Withdrawable amount rounds to zero");
         await (await vault.withdrawPLS(withdrawablePLS)).wait();
         statusEl.textContent = `Withdrew ${Number(ethers.formatEther(withdrawablePLS)).toFixed(2)} PLS — vault still safe!`;
       }
     });
 
-  // Check Liquidation Risk
+  // Check Liquidation Risk — uses vaultInfo.liquidatable (no separate canLiquidate fn)
   document.getElementById("riskBtn").onclick = () =>
     withLoading(document.getElementById("riskBtn"), async () => {
-      const can = await vault.canLiquidate(account);
-      document.getElementById("riskText").innerHTML = can
-        ? '<span style="color:#ef4444">⚠️ LIQUIDATION RISK — act now!</span>'
-        : '<span style="color:#10b981">✅ You are safe</span>';
+      const info = await vault.vaultInfo(account);
+      const ratioPct = Number(info.ratio) / 100;
+      const el = document.getElementById("riskText");
+      if (info.liquidatable) {
+        el.innerHTML = `<span style="color:#ef4444">⚠️ LIQUIDATABLE NOW — ratio ${ratioPct.toFixed(1)}% — act immediately!</span>`;
+      } else if (ratioPct < 170) {
+        el.innerHTML = `<span style="color:#fbbf24">⚠️ At risk — ratio ${ratioPct.toFixed(1)}% — consider adding collateral</span>`;
+      } else {
+        el.innerHTML = `<span style="color:#10b981">✅ Safe — ratio ${ratioPct.toFixed(1)}%</span>`;
+      }
     });
 
   // Emergency Unlock
@@ -1110,17 +1197,18 @@
       <h4>🔄 Redemption System</h4>
       <ul>
         <li>SunPLS can be redeemed for PLS from any eligible vault</li>
-        <li>Redemption value R starts at 1.0 and adjusts via the Controller</li>
+        <li>R = the controller's redemption value (in WPLS per SunPLS) — adjusts each epoch based on peg deviation</li>
         <li>Small fee goes to the vault owner whose collateral is redeemed</li>
         <li>Vaults must be above the redemption ratio to be eligible</li>
+        <li>Spread between oracle spot and R tells you where SunPLS is trading vs peg</li>
       </ul>
 
       <h4>⚙️ Controller / Rate Engine</h4>
       <ul>
-        <li>The Controller adjusts the stability fee (interest rate) each epoch</li>
-        <li>When SunPLS trades above $1, rate decreases (cheaper to mint)</li>
-        <li>When SunPLS trades below $1, rate increases (incentivizes repayment)</li>
-        <li>R value tracks the redemption price of SunPLS</li>
+        <li>Controller adjusts the stability fee (interest rate) each epoch based on oracle spread</li>
+        <li>When SunPLS trades above R (positive spread), rate may decrease (cheaper to mint)</li>
+        <li>When SunPLS trades below R (negative spread), rate increases (incentivizes repayment)</li>
+        <li>R tracks the controller's internal redemption price in WPLS — moves slowly each epoch</li>
         <li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
       </ul>
 
