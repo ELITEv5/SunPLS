@@ -1177,14 +1177,16 @@
         <li>R = the controller's redemption value (in WPLS per SunPLS) — adjusts each epoch based on peg deviation</li>
         <li>Small fee goes to the vault owner whose collateral is redeemed</li>
         <li>Vaults must be above the redemption ratio to be eligible</li>
-        <li>Spread between oracle spot and R tells you where SunPLS is trading vs peg</li>
+        <li>Spread = (P - R) / R, where both P and R are measured in WPLS per SunPLS</li>
       </ul>
 
       <h4>⚙️ Controller / Rate Engine</h4>
       <ul>
         <li>Controller adjusts the stability fee (interest rate) each epoch based on oracle spread</li>
-        <li>When SunPLS trades above R (positive spread), rate may decrease (cheaper to mint)</li>
-        <li>When SunPLS trades below R (negative spread), rate increases (incentivizes repayment)</li>
+        <li>When SunPLS trades above R (positive spread), rate increases</li>
+<li>When SunPLS trades below R (negative spread), rate decreases</li>
+<li>R tracks the controller's internal redemption price in WPLS per SunPLS — moves slowly each epoch</li>
+<li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
         <li>R tracks the controller's internal redemption price in WPLS per SunPLS — moves slowly each epoch</li>
         <li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
       </ul>
