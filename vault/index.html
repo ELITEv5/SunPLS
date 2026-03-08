@@ -530,7 +530,7 @@
       // Oracle returns: WPLS per 1 SunPLS, scaled by ORACLE_PRECISION (1e18)
       // e.g. 117870e18 means 1 SunPLS redeems for 117,870 WPLS
       // Display as: "117.37K WPLS per SunPLS"
-      const wplsPerSunPLS = Number(p) / Number(ORACLE_PRECISION);
+      const wplsPerSunPLS = Number(ethers.formatEther(p));
       let displayVal;
       if (wplsPerSunPLS >= 1_000_000) {
         displayVal = (wplsPerSunPLS / 1_000_000).toFixed(2) + "M";
