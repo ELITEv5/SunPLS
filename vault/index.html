@@ -495,6 +495,7 @@
       // Enable all buttons
       document.querySelectorAll(".btn").forEach(b => { if (!b.id.startsWith("trigger") && !b.id.startsWith("update")) b.disabled = false; });
 
+      await detectOraclePrecision();
       await Promise.all([updatePrice(), loadVault(), loadGlobalStats(), loadControllerState()]);
       setInterval(updatePrice, 60000);
       setInterval(loadControllerState, 30000);
@@ -509,13 +510,27 @@
   }
 
   // ── Oracle: get price via peek() ──
+  // Oracle PRECISION constant (fetched once on connect, defaults to 1e18)
+  let ORACLE_PRECISION = 10n ** 18n;
+
+  async function detectOraclePrecision() {
+    try {
+      const p = await oracle.PRECISION();
+      ORACLE_PRECISION = p;
+      console.log("Oracle PRECISION:", p.toString());
+    } catch {
+      ORACLE_PRECISION = 10n ** 18n; // safe default
+    }
+  }
+
   async function updatePrice() {
     try {
       const [p, ts] = await oracle.peek();
       price = p;
-      const age = Math.floor(Date.now()/1000) - Number(ts);
+      // Normalise to a human-readable USD value using oracle's own PRECISION
+      const priceHuman = Number(p) / Number(ORACLE_PRECISION);
       document.getElementById("price").textContent =
-        "$" + (Number(p)/1e18).toFixed(6) + " per PLS";
+        "$" + priceHuman.toFixed(6) + " per PLS";
     } catch {
       document.getElementById("price").textContent = "Oracle offline";
       price = 0n;
@@ -550,29 +565,39 @@
   async function loadControllerState() {
     try {
       const s = await controller.getCurrentState();
-      // Returns: redemptionValue, currentRate, lastEpoch, timeUntilNext, epochs,
-      //          limiterHitCount, deadbandSkipCount, oracleFallbackCount, frozenEpochCount,
-      //          canTrigger, storedPrice, storedPriceAge
+      // Log raw values so we can verify scaling
+      console.log("Controller state raw:", {
+        redemptionValue: s.redemptionValue.toString(),
+        currentRate: s.currentRate.toString(),
+        epochs: s.epochs.toString(),
+        timeUntilNext: s.timeUntilNext.toString(),
+        canTrigger: s.canTrigger,
+        limiterHitCount: s.limiterHitCount.toString()
+      });
+
+      // redemptionValue is 1e18-scaled (R starts at 1.0 = 1e18)
       const R         = Number(ethers.formatEther(s.redemptionValue));
-      const rate      = Number(s.currentRate);       // int256 in bps * 1e12 or similar
+      // currentRate is int256 — the controller uses bps*1e14 per year (1e18 = 100% APR)
+      // so rate/1e16 = % per year  (e.g. 5e14 = 0.05%)
+      const rateBig   = s.currentRate;  // BigInt
+      const rateAPR   = Number(rateBig) / 1e16; // convert to % APR
       const epochs    = Number(s.epochs);
       const untilNext = Number(s.timeUntilNext);
       const canTrig   = s.canTrigger;
       const limHits   = Number(s.limiterHitCount);
 
-      document.getElementById("ctrlR").textContent      = R.toFixed(4);
-      document.getElementById("ctrlRate").textContent   = (rate / 1e14).toFixed(4) + "%";
+      document.getElementById("ctrlR").textContent      = R.toFixed(6);
+      document.getElementById("ctrlRate").textContent   = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
       document.getElementById("ctrlEpochs").textContent = epochs.toString();
       document.getElementById("ctrlNext").textContent   =
         untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
       document.getElementById("ctrlCan").textContent    = canTrig ? "✅ Yes" : "⏳ No";
       document.getElementById("ctrlLimiter").textContent = limHits.toString();
 
-      // Also update rate display at top
+      // Rate display banner at top
       const rateDisplay = document.getElementById("rateDisplay");
-      const rateSign = rate >= 0 ? "+" : "";
-      rateDisplay.textContent = `Stability Rate: ${rateSign}${(rate/1e14).toFixed(4)}% | R = ${R.toFixed(4)} SunPLS`;
-      rateDisplay.style.color = rate > 0 ? "#f87171" : rate < 0 ? "#34d399" : "#fbbf24";
+      rateDisplay.textContent = `Stability Rate: ${rateAPR >= 0 ? "+" : ""}${rateAPR.toFixed(4)}% APR | R = ${R.toFixed(6)}`;
+      rateDisplay.style.color = rateAPR > 0 ? "#f87171" : rateAPR < 0 ? "#34d399" : "#fbbf24";
 
       document.getElementById("triggerEpochBtn").disabled = !canTrig;
 
@@ -617,7 +642,9 @@
   function usdToPLS(usd) {
     if (!price || price === 0n) return 0n;
     const usdWei = ethers.parseUnits(usd.toString(), 18);
-    return (usdWei * DECIMALS) / price;
+    // price is (SunPLS per PLS) scaled by ORACLE_PRECISION
+    // PLS needed = usdAmount * ORACLE_PRECISION / price
+    return (usdWei * ORACLE_PRECISION) / price;
   }
   function usdToSunPLS(usd) { return ethers.parseUnits(usd.toString(), 18); }
 
@@ -722,7 +749,7 @@
           wmPreview.style.color = "#10b981";
           wmBtn.disabled = false;
         } else if (i.debt > 0n && i.collateral > 0n && price > 0n) {
-          const reqColl = (i.debt * 150n * DECIMALS) / (price * 100n);
+          const reqColl = (i.debt * 150n * ORACLE_PRECISION) / (price * 100n);
           const wdable  = i.collateral > reqColl ? i.collateral - reqColl : 0n;
           if (wdable > 0n) {
             const wdNum = Number(ethers.formatEther(wdable));
@@ -930,7 +957,7 @@
         await (await vault.withdrawPLS(info.collateral)).wait();
         statusEl.textContent = `Withdrew all ${Number(ethers.formatEther(info.collateral)).toFixed(2)} PLS`;
       } else {
-        const reqColl = (info.debt * 150n * DECIMALS) / (price * 100n);
+        const reqColl = (info.debt * 150n * ORACLE_PRECISION) / (price * 100n);
         const wdable  = info.collateral > reqColl ? info.collateral - reqColl : 0n;
         if (wdable === 0n) throw new Error("Already at minimum safe collateral — repay some debt first");
         await (await vault.withdrawPLS(wdable)).wait();
