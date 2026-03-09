@@ -1,37 +1,79 @@
 # SunPLS Architecture
 
-SunPLS is designed as a **minimal autonomous monetary protocol**.  
-Its architecture intentionally limits the number of system components in order to reduce complexity, minimize attack surface, and make the economic feedback loop easier to verify.
+SunPLS is an experimental autonomous monetary protocol built on PulseChain.
 
-The system operates through five primary modules:
+The protocol combines:
 
-```
-Oracle → Controller → Vault → Liquidations
-              ↑
-              └──── Redemptions
-```
+- overcollateralized vaults
+- algorithmic monetary policy
+- permissionless liquidations
+- redemption arbitrage
 
-Each component has a clearly defined role and interacts through deterministic rules.
+to create a self-stabilizing digital asset.
+
+SunPLS draws conceptual inspiration from the **ProjectUSD specification**, particularly its feedback-based stabilization design, while intentionally simplifying the system architecture to reduce complexity and attack surface.
 
 ---
 
-# System Components
+# Design Philosophy
+
+SunPLS prioritizes four core principles:
+
+### Simplicity
+
+The protocol intentionally minimizes system components.  
+Fewer modules reduce the number of potential failure points and simplify security analysis.
+
+### Determinism
+
+All monetary policy decisions are executed by predefined algorithmic rules.
+
+### Permissionlessness
+
+Anyone can interact with the system by:
+
+- minting SunPLS
+- redeeming SunPLS
+- liquidating unsafe vaults
+- triggering controller epochs
+
+### Autonomy
+
+Once deployed, the protocol operates without administrative control or governance intervention.
+
+---
+
+# System Overview
+
+SunPLS operates through five primary modules.
+
+```
+Oracle → Controller → Vault System → Liquidations
+               ↑
+               └────────── Redemptions
+```
+
+Each component has a clearly defined responsibility.
+
+---
+
+# Core Components
 
 ## Oracle
 
-The Oracle provides the **external price signal `P`**, representing the market price of SunPLS relative to PLS.
+The Oracle provides the **external market price P**.
 
 Responsibilities:
 
-- read market price from the liquidity pool
+- read SunPLS price from the liquidity pool
 - compute a TWAP-based price
-- expose `update()`, `peek()`, and health status
-- protect against flash-loan manipulation
-- degrade gracefully if price updates fail
+- expose price through `update()` and `peek()`
+- detect stale or invalid price feeds
+- provide health status for the controller
 
-The Oracle is the **only external input into the system**.
+The Oracle is the **only external input into the protocol**.
 
-All other protocol behavior is derived from this signal.
+All other system behavior derives from this signal.
 
 ---
 
@@ -39,7 +81,14 @@ All other protocol behavior is derived from this signal.
 
 The Controller is the **monetary policy engine** of SunPLS.
 
-It compares the market price `P` with the internal equilibrium price `R` and adjusts the system interest rate `r`.
+It compares:
+
+```
+P = market price
+R = equilibrium price
+```
+
+and adjusts the system interest rate `r`.
 
 Core feedback rule:
 
@@ -48,40 +97,35 @@ Core feedback rule:
 Δr = K × (ε / R)
 ```
 
-Controller effects:
+The Controller ensures that borrowing conditions dynamically adjust to market price deviations.
 
-- If **P > R**, borrowing becomes more expensive  
-- If **P < R**, borrowing becomes cheaper  
-
-This creates an automatic feedback loop that drives the market price toward equilibrium.
-
-Additional safeguards implemented in SunPLS include:
+Key controller features:
 
 - deadband filtering
-- rate limiting
-- oracle degradation modes
-- dynamic controller gain decay
+- rate limiter
+- dynamic gain decay
+- oracle fallback modes
 - emergency system protection
 - bounded equilibrium price movement
 
-The Controller acts as a **deterministic monetary policy engine**.
+The controller executes once per **epoch** (typically hourly).
 
 ---
 
-## Vault
+## Vault System
 
-The Vault module manages **collateralized borrowing**.
+Vaults allow users to mint SunPLS by depositing PLS collateral.
 
-Users deposit PLS and mint SunPLS against their collateral.
+Users can:
 
-Key properties:
+- deposit PLS
+- mint SunPLS
+- repay debt
+- withdraw collateral
 
-- overcollateralized minting
-- deterministic collateral ratios
-- automatic liquidation when vault safety thresholds are violated
-- real-time tracking of collateral and debt
+Vaults must remain above the required collateral ratio.
 
-Vaults are the primary mechanism through which SunPLS enters circulation.
+If collateralization becomes unsafe, the vault becomes liquidatable.
 
 ---
 
@@ -89,53 +133,57 @@ Vaults are the primary mechanism through which SunPLS enters circulation.
 
 Liquidations remove unsafe vaults from the system.
 
-When a vault’s collateral ratio falls below the liquidation threshold:
+Condition:
 
 ```
-CR < LiquidationCR
+CR < LiquidationThreshold
 ```
 
-any user can trigger a liquidation.
+Where:
 
-Process:
+```
+CR = collateral value / debt
+```
+
+Liquidation process:
 
 1. liquidator repays SunPLS debt
-2. vault collateral is transferred to the liquidator
-3. vault debt and collateral are cleared
+2. vault collateral is transferred to liquidator
+3. vault state resets to zero
 
-Liquidations ensure that:
+Liquidations guarantee:
 
-- the system remains fully collateralized
-- unsafe debt is removed quickly
-- economic incentives enforce system safety
+- system solvency
+- full collateral backing
+- economic enforcement of safety
 
 ---
 
 ## Redemptions
 
-Redemptions allow users to exchange SunPLS directly for PLS at the system equilibrium price `R`.
+Redemptions allow users to exchange SunPLS directly for PLS at the system price.
 
 ```
 1 SunPLS → (1 / R) PLS
 ```
 
-This creates a **hard economic price floor**.
+Redemptions create a **hard price floor**.
 
-If market price falls below redemption value:
+If SunPLS trades below redemption value:
 
 ```
-buy SunPLS cheaply
-→ redeem for collateral
-→ profit
+buy SunPLS on market
+redeem for PLS
+profit
 ```
 
-This arbitrage mechanism naturally pushes the market price back toward equilibrium.
+This arbitrage mechanism pushes the market price back toward equilibrium.
 
 ---
 
 # Monetary Feedback Loop
 
-SunPLS forms a closed economic feedback loop.
+SunPLS forms a closed economic feedback system.
 
 ```
 Market Price (P)
@@ -146,74 +194,105 @@ Interest rate r adjusts
         ↓
 Borrowing incentives change
         ↓
-SunPLS supply adjusts
+SunPLS supply changes
         ↓
 Market price moves toward equilibrium
 ```
 
-At the same time:
+Simultaneously:
 
 ```
 Unsafe vaults → liquidations remove debt
 Cheap SunPLS → redemptions remove supply
 ```
 
-Together these mechanisms maintain system stability without external governance.
+Together these forces stabilize the system.
 
 ---
 
-# Design Goals
+# Key Protocol Properties
 
-SunPLS architecture prioritizes four goals.
+SunPLS attempts to maintain the following properties:
 
-### Simplicity
+### Overcollateralization
 
-Fewer components reduce complexity and risk.
+Every SunPLS token is backed by excess collateral.
 
-### Determinism
+### Deterministic Policy
 
-All policy decisions follow predefined rules.
+Monetary policy is executed entirely by code.
 
-### Permissionlessness
+### Transparent Operation
 
-Anyone can:
+All system variables are publicly visible on-chain.
 
-- mint
-- liquidate
-- redeem
-- trigger controller epochs
+### Permissionless Enforcement
 
-### Autonomy
-
-Once deployed, the system operates **without administrative intervention**.
+Safety is enforced by open participation rather than centralized actors.
 
 ---
 
-# System Properties
+# Differences from ProjectUSD
 
-SunPLS attempts to achieve the following properties:
+SunPLS draws inspiration from the **ProjectUSD controller specification**, but simplifies several components.
 
-- overcollateralized stability
-- algorithmic monetary policy
-- permissionless enforcement
-- deterministic system rules
-- transparent on-chain telemetry
+Notable simplifications:
 
-Together these characteristics move the protocol toward a new class of financial infrastructure:
+- no stability pool
+- no surplus buffer
+- no governance parameter updates
+- reduced module complexity
 
-**Autonomous Monetary Protocols (AMPs)**.
+This design focuses on creating a **minimal autonomous monetary experiment**.
 
 ---
 
-# Experimental Status
+# System Data Flow
 
-SunPLS is an experimental system designed to explore whether:
+```
+DEX Price
+   ↓
+Oracle (TWAP)
+   ↓
+Controller
+   ↓
+Interest Rate r
+   ↓
+Vault Borrowing Incentives
+   ↓
+SunPLS Supply
+   ↓
+Market Price
+```
 
-- feedback-controlled interest rates
-- collateralized vaults
+Safety mechanisms operate alongside the main loop:
+
+```
+Vault CR ↓ → Liquidations remove debt
+Market Price ↓ → Redemptions remove supply
+```
+
+---
+
+# Experimental Nature
+
+SunPLS is an experimental protocol exploring whether:
+
+- algorithmic interest rate control
+- overcollateralized borrowing
 - permissionless liquidations
 - redemption arbitrage
 
-can together produce a **self-stabilizing digital asset without centralized control**.
+can produce a **self-stabilizing digital asset without centralized monetary control**.
 
-Its behavior under real market conditions will determine the viability of this model.
+The long-term behavior of such systems can only be evaluated through real-world operation.
+
+---
+
+# References
+
+Conceptual inspiration:
+
+ProjectUSD Whitepaper V2.1  
+ProjectUSD Controller Specification  
+ProjectUSD Stability Model Research
