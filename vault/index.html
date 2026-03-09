@@ -311,7 +311,7 @@
     <!-- Repay & Withdraw All -->
     <div class="card">
       <button class="btn" id="repayAllBtn" disabled style="background:linear-gradient(135deg,#b45309,#ea580c);color:#fff;box-shadow:0 4px 15px rgba(180,83,9,0.4)">
-        Repay All & Withdraw Collateral
+        Repay All &amp; Withdraw Collateral
       </button>
       <div class="helper">Full exit: repays all debt and withdraws all collateral in one transaction</div>
     </div>
@@ -351,11 +351,14 @@
       <div style="text-align:center;font-size:0.9em;color:#5eead4;margin-bottom:10px;font-weight:700">
         🔄 Redeem SunPLS for PLS
       </div>
-      <input id="redeemAmount" type="number" step="0.01" placeholder="SunPLS amount to redeem" />
-      <input id="redeemTarget" type="text" placeholder="Target vault address (to redeem against)" style="margin-top:8px" />
-      <div class="preview" id="redeemPreview" style="color:#5eead4"></div>
-      <button class="btn teal" id="redeemBtn" disabled style="margin-top:8px">Preview & Redeem</button>
-      <div class="helper">Redeem SunPLS for underlying PLS at current redemption value R</div>
+      <div style="text-align:center;font-size:0.86em;color:var(--text);line-height:1.6;margin-bottom:14px">
+        The Vault Dashboard automatically finds eligible vaults — no address copy-paste needed.
+        Scan, pick a vault, enter your amount and redeem in one place.
+      </div>
+      <button class="btn teal" onclick="window.location.href='liquidations.html?t='+Date.now()">
+        🔄 Open Vault Dashboard to Redeem
+      </button>
+      <div class="helper">Finds the best eligible vaults for you automatically</div>
     </div>
 
     <!-- ═══════════════════════ CONTROLLER PANEL ═══════════════════════ -->
@@ -382,7 +385,7 @@
     <div class="card" style="margin-bottom:12px">
       <button class="btn" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;box-shadow:0 4px 15px rgba(79,70,229,0.4)"
         onclick="window.location.href='liquidations.html?t='+Date.now()">
-        View Liquidation Dashboard
+        📊 Vault Dashboard — Liquidations &amp; Redemptions
       </button>
     </div>
 
@@ -423,17 +426,17 @@
           0x59866633636B337203DDFc2C48163B32CB729b39
         </a>
       </div>
+      <div style="margin-top:18px;text-align:center;width:100%">
+        <span class="clabel" style="display:block;margin-bottom:6px">Documentation</span>
+        <a href="https://github.com/ELITEv5/SunPLS" target="_blank" rel="noopener noreferrer"
+          style="color:var(--sun2);text-decoration:none;font-weight:700;font-size:0.95em;
+                 display:inline-flex;align-items:center;gap:8px;padding:10px 20px;
+                 border:1px solid var(--border);border-radius:10px;
+                 background:rgba(245,158,11,0.06);transition:all 0.2s">
+          📄 github.com/ELITEv5/SunPLS
+        </a>
+      </div>
     </div>
-    <div style="margin-top:18px;text-align:center">
-  <span class="clabel" style="display:block;margin-bottom:6px">Documentation</span>
-  <a href="https://github.com/ELITEv5/SunPLS" target="_blank" rel="noopener noreferrer"
-    style="color:var(--sun2);text-decoration:none;font-weight:700;font-size:0.95em;
-           display:inline-flex;align-items:center;gap:8px;padding:10px 20px;
-           border:1px solid var(--border);border-radius:10px;
-           background:rgba(245,158,11,0.06);transition:all 0.2s">
-    📄 github.com/ELITEv5/SunPLS
-  </a>
-</div>
   </footer>
 
   <script>
@@ -466,9 +469,9 @@
   const DECIMALS = 10n ** 18n;
 
   // ── DOM Refs ──
-  const statusEl = document.getElementById("status");
-  const errorEl  = document.getElementById("error");
-  const statsEl  = document.getElementById("stats");
+  const statusEl  = document.getElementById("status");
+  const errorEl   = document.getElementById("error");
+  const statsEl   = document.getElementById("stats");
   const walletText = document.getElementById("walletText");
   const walletBtn  = document.getElementById("walletBtn");
 
@@ -513,8 +516,10 @@
       walletText.textContent = account.slice(0,6) + "..." + account.slice(-4);
       walletBtn.classList.add("connected");
 
-      // Enable all buttons
-      document.querySelectorAll(".btn").forEach(b => { if (!b.id.startsWith("trigger") && !b.id.startsWith("update")) b.disabled = false; });
+      // Enable all buttons except ones that self-manage their disabled state
+      document.querySelectorAll(".btn").forEach(b => {
+        if (!b.id.startsWith("trigger") && !b.id.startsWith("update")) b.disabled = false;
+      });
 
       await detectOraclePrecision();
       await fetchCooldown();
@@ -531,7 +536,7 @@
     }
   }
 
-  // ── Oracle: get price via peek() ──
+  // ── Oracle precision check (non-critical) ──
   async function detectOraclePrecision() {
     try {
       const p = await oracle.PRECISION();
@@ -543,27 +548,20 @@
     try {
       const [p, ts] = await oracle.peek();
       price = p;
-
       // Oracle returns: WPLS per 1 SunPLS, scaled by 1e18
-      // Example: 117870e18 means 1 SunPLS costs 117,870 WPLS
       const wplsPerSunPLS = Number(ethers.formatEther(p));
       let displayVal;
-      if (wplsPerSunPLS >= 1_000_000) {
-        displayVal = (wplsPerSunPLS / 1_000_000).toFixed(2) + "M";
-      } else if (wplsPerSunPLS >= 1_000) {
-        displayVal = (wplsPerSunPLS / 1_000).toFixed(2) + "K";
-      } else {
-        displayVal = wplsPerSunPLS.toFixed(4);
-      }
-      document.getElementById("price").textContent =
-        displayVal + " WPLS per SunPLS";
+      if (wplsPerSunPLS >= 1_000_000)     displayVal = (wplsPerSunPLS / 1_000_000).toFixed(2) + "M";
+      else if (wplsPerSunPLS >= 1_000)    displayVal = (wplsPerSunPLS / 1_000).toFixed(2) + "K";
+      else                                displayVal = wplsPerSunPLS.toFixed(4);
+      document.getElementById("price").textContent = displayVal + " WPLS per SunPLS";
     } catch {
       document.getElementById("price").textContent = "Oracle offline";
       price = 0n;
     }
   }
 
-  // ── Oracle health check using isHealthy() + peek() ──
+  // ── Oracle health check ──
   async function checkOracleHealth() {
     const el  = document.getElementById("oracleStatus");
     const btn = document.getElementById("updateOracleBtn");
@@ -600,14 +598,13 @@
         limiterHitCount: s.limiterHitCount.toString()
       });
 
-      // R is WPLS per SunPLS, same units as oracle price
       currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
 
       const Rraw = Number(ethers.formatEther(currentR));
       let Rdisplay;
-      if (Rraw >= 1_000_000) Rdisplay = (Rraw / 1_000_000).toFixed(2) + "M";
-      else if (Rraw >= 1_000) Rdisplay = (Rraw / 1_000).toFixed(2) + "K";
-      else Rdisplay = Rraw.toFixed(4);
+      if (Rraw >= 1_000_000)     Rdisplay = (Rraw / 1_000_000).toFixed(2) + "M";
+      else if (Rraw >= 1_000)    Rdisplay = (Rraw / 1_000).toFixed(2) + "K";
+      else                       Rdisplay = Rraw.toFixed(4);
 
       const rateBig   = s.currentRate;
       const rateAPR   = Number(rateBig) / 1e16;
@@ -616,12 +613,11 @@
       const canTrig   = s.canTrigger;
       const limHits   = Number(s.limiterHitCount);
 
-      document.getElementById("ctrlR").textContent      = Rdisplay + " WPLS/SunPLS";
-      document.getElementById("ctrlRate").textContent   = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
-      document.getElementById("ctrlEpochs").textContent = epochs.toString();
-      document.getElementById("ctrlNext").textContent   =
-        untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
-      document.getElementById("ctrlCan").textContent    = canTrig ? "✅ Yes" : "⏳ No";
+      document.getElementById("ctrlR").textContent       = Rdisplay + " WPLS/SunPLS";
+      document.getElementById("ctrlRate").textContent    = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
+      document.getElementById("ctrlEpochs").textContent  = epochs.toString();
+      document.getElementById("ctrlNext").textContent    = untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
+      document.getElementById("ctrlCan").textContent     = canTrig ? "✅ Yes" : "⏳ No";
       document.getElementById("ctrlLimiter").textContent = limHits.toString();
 
       const oracleRaw = Number(ethers.formatEther(price));
@@ -661,8 +657,8 @@
       document.getElementById("totalColl").textContent = fmtBig(collNum) + " PLS";
       document.getElementById("totalDebt").textContent = fmtBig(debtNum) + " SunPLS";
       const hEl = document.getElementById("sysHealth");
-      hEl.textContent  = healthNum.toFixed(1) + "%";
-      hEl.className    = "value " + (healthNum < 130 ? "risk" : healthNum < 150 ? "warn" : "safe");
+      hEl.textContent = healthNum.toFixed(1) + "%";
+      hEl.className   = "value " + (healthNum < 130 ? "risk" : healthNum < 150 ? "warn" : "safe");
 
       const info = await vault.vaultInfo(account);
       const yourColl = Number(ethers.formatEther(info.collateral));
@@ -680,7 +676,6 @@
 
   // ── Conversions ──
   // Oracle price = WPLS per SunPLS (1e18-scaled)
-  // Therefore:
   //   SunPLS value of N PLS  = N * 1e18 / price
   //   PLS value of N SunPLS  = N * price / 1e18
 
@@ -719,9 +714,9 @@
 
       const redemptionRaw = Number(ethers.formatEther(i.redemptionVal));
       let redemptionDisplay;
-      if (redemptionRaw >= 1_000_000) redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
-      else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
-      else redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
+      if (redemptionRaw >= 1_000_000)     redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
+      else if (redemptionRaw >= 1_000)    redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
+      else                                redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
 
       const collValDisplay = Number(ethers.formatEther(i.collateralValueUSD)).toFixed(6);
 
@@ -810,11 +805,8 @@
           wmPreview.style.color = "#10b981";
           wmBtn.disabled = false;
         } else if (i.debt > 0n && i.collateral > 0n && price > 0n) {
-          // Required collateral at 150%:
-          // requiredCollateral = debt * 150 * price / (100 * 1e18)
-          // slight safety margin (+0.1%) to avoid boundary rounding rejects
+          // requiredCollateral = debt * 150 * price / (100 * 1e18) + 0.1% safety margin
           const requiredCollateral = (((i.debt * 150n) / 100n) * price * 1001n) / (DECIMALS * 1000n);
-
           if (i.collateral <= requiredCollateral) {
             wmPreview.textContent = "At minimum safe collateral — repay debt to withdraw more";
             wmPreview.style.color = "#d97706";
@@ -862,7 +854,7 @@
   // ── Live Input Previews ──
   document.getElementById("usdIn").addEventListener("input", () => {
     const plsAmt = parseFloat(document.getElementById("usdIn").value) || 0;
-    const el  = document.getElementById("plsOut");
+    const el = document.getElementById("plsOut");
     if (!plsAmt || !price) { el.textContent = ""; return; }
     const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
     el.textContent = `≈ ${sunplsVal.toFixed(6)} SunPLS value`;
@@ -870,7 +862,7 @@
 
   document.getElementById("usdOut").addEventListener("input", () => {
     const plsAmt = parseFloat(document.getElementById("usdOut").value) || 0;
-    const el  = document.getElementById("plsIn");
+    const el = document.getElementById("plsIn");
     if (!plsAmt || !price) { el.textContent = ""; return; }
     const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
     el.textContent = `≈ ${sunplsVal.toFixed(6)} SunPLS value`;
@@ -878,14 +870,13 @@
 
   document.getElementById("usdOneClick").addEventListener("input", () => {
     const plsAmt = parseFloat(document.getElementById("usdOneClick").value) || 0;
-    const el  = document.getElementById("plsOneClick");
+    const el = document.getElementById("plsOneClick");
     if (!plsAmt || !price) { el.textContent = ""; return; }
     const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
     const mintAmt   = sunplsVal / 1.55;
     el.textContent  = `≈ ${sunplsVal.toFixed(6)} SunPLS value → mints ${mintAmt.toFixed(6)} SunPLS (at 155%)`;
   });
 
-  // Mint input preview — show ratio impact
   document.getElementById("usdMint").addEventListener("input", async () => {
     const val = parseFloat(document.getElementById("usdMint").value) || 0;
     const el  = document.getElementById("mintPreview");
@@ -902,7 +893,6 @@
     } catch { el.textContent = ""; }
   });
 
-  // Repay input preview — show remaining debt
   document.getElementById("usdRepay").addEventListener("input", async () => {
     const val = parseFloat(document.getElementById("usdRepay").value) || 0;
     const el  = document.getElementById("repayPreview");
@@ -920,34 +910,6 @@
       }
     } catch { el.textContent = ""; }
   });
-
-  async function updateRedeemPreview() {
-    const amtStr    = document.getElementById("redeemAmount").value;
-    const targetStr = document.getElementById("redeemTarget").value;
-    const el        = document.getElementById("redeemPreview");
-    if (!amtStr || !targetStr || !ethers.isAddress(targetStr) || !vault) {
-      el.textContent = ""; return;
-    }
-    try {
-      const amt = ethers.parseUnits(amtStr, 18);
-      const p   = await vault.redemptionPreview(targetStr, amt);
-      const plsOut  = Number(ethers.formatEther(p.plsToRedeemer));
-      const feeOut  = Number(ethers.formatEther(p.feeToOwner));
-      const rVal    = Number(ethers.formatEther(p.R));
-      if (!p.eligible) {
-        el.textContent = "⚠️ Target vault not eligible for redemption";
-        el.style.color = "#f87171";
-      } else {
-        el.textContent = `You receive ${plsOut.toFixed(4)} PLS | Fee to vault owner: ${feeOut.toFixed(4)} PLS | R=${rVal.toFixed(4)} WPLS/SunPLS`;
-        el.style.color = "#5eead4";
-      }
-    } catch {
-      el.textContent = "Preview failed — check target address";
-      el.style.color = "#f87171";
-    }
-  }
-  document.getElementById("redeemAmount").addEventListener("input", updateRedeemPreview);
-  document.getElementById("redeemTarget").addEventListener("input", updateRedeemPreview);
 
   // ── Transaction Wrapper ──
   async function withLoading(btn, fn) {
@@ -971,7 +933,6 @@
 
   // ── Button Handlers ──
 
-  // 1-Click Auto Mint — input is raw PLS amount
   document.getElementById("oneClickBtn").onclick = () =>
     withLoading(document.getElementById("oneClickBtn"), async () => {
       const plsAmt = parseFloat(document.getElementById("usdOneClick").value);
@@ -979,7 +940,6 @@
       await (await vault.depositAndAutoMintPLS({ value: ethers.parseUnits(plsAmt.toString(), 18) })).wait();
     });
 
-  // Deposit PLS — input is raw PLS amount
   document.getElementById("depositBtn").onclick = () =>
     withLoading(document.getElementById("depositBtn"), async () => {
       const plsAmt = parseFloat(document.getElementById("usdIn").value);
@@ -987,7 +947,6 @@
       await (await vault.depositPLS({ value: ethers.parseUnits(plsAmt.toString(), 18) })).wait();
     });
 
-  // Mint SunPLS
   document.getElementById("mintBtn").onclick = () =>
     withLoading(document.getElementById("mintBtn"), async () => {
       const usd = parseFloat(document.getElementById("usdMint").value);
@@ -995,7 +954,6 @@
       await (await vault.mint(usdToSunPLS(usd))).wait();
     });
 
-  // Mint Max Safe
   document.getElementById("mintMaxBtn").onclick = () =>
     withLoading(document.getElementById("mintMaxBtn"), async () => {
       const info = await vault.vaultInfo(account);
@@ -1003,7 +961,6 @@
       await (await vault.mint(info.mintable)).wait();
     });
 
-  // Repay Debt
   document.getElementById("repayBtn").onclick = () =>
     withLoading(document.getElementById("repayBtn"), async () => {
       const usd = parseFloat(document.getElementById("usdRepay").value);
@@ -1016,7 +973,6 @@
       await (await vault.repay(amt)).wait();
     });
 
-  // Repay to Safe
   document.getElementById("repayToSafeBtn").onclick = () =>
     withLoading(document.getElementById("repayToSafeBtn"), async () => {
       const needed = await vault.repayToHealth(account);
@@ -1030,7 +986,6 @@
       statusEl.textContent = `Repaid ${Number(ethers.formatEther(needed)).toFixed(4)} SunPLS — vault now at 150%`;
     });
 
-  // Repay All & Withdraw
   document.getElementById("repayAllBtn").onclick = () =>
     withLoading(document.getElementById("repayAllBtn"), async () => {
       const info = await vault.vaultInfo(account);
@@ -1041,7 +996,6 @@
       await (await vault.repayAndWithdrawAll()).wait();
     });
 
-  // Withdraw PLS — input is raw PLS amount
   document.getElementById("withdrawBtn").onclick = () =>
     withLoading(document.getElementById("withdrawBtn"), async () => {
       const plsAmt = parseFloat(document.getElementById("usdOut").value);
@@ -1049,7 +1003,6 @@
       await (await vault.withdrawPLS(ethers.parseUnits(plsAmt.toString(), 18))).wait();
     });
 
-  // Withdraw Max Safe
   document.getElementById("withdrawMaxBtn").onclick = () =>
     withLoading(document.getElementById("withdrawMaxBtn"), async () => {
       const info  = await vault.vaultInfo(account);
@@ -1074,7 +1027,6 @@
       }
     });
 
-  // Check Liquidation Risk
   document.getElementById("riskBtn").onclick = () =>
     withLoading(document.getElementById("riskBtn"), async () => {
       const info = await vault.vaultInfo(account);
@@ -1089,7 +1041,6 @@
       }
     });
 
-  // Emergency Unlock
   document.getElementById("emergencyBtn").onclick = () =>
     withLoading(document.getElementById("emergencyBtn"), async () => {
       const info = await vault.vaultInfo(account);
@@ -1098,22 +1049,6 @@
       await (await vault.emergencyUnlock()).wait();
     });
 
-  // Redeem SunPLS
-  document.getElementById("redeemBtn").onclick = () =>
-    withLoading(document.getElementById("redeemBtn"), async () => {
-      const amtStr    = document.getElementById("redeemAmount").value;
-      const targetStr = document.getElementById("redeemTarget").value;
-      if (!amtStr || parseFloat(amtStr) <= 0) throw new Error("Enter redeem amount");
-      if (!ethers.isAddress(targetStr)) throw new Error("Enter valid target vault address");
-      const amt = ethers.parseUnits(amtStr, 18);
-      const preview = await vault.redemptionPreview(targetStr, amt);
-      if (!preview.eligible) throw new Error("Target vault not eligible for redemption");
-      await (await token.approve(VAULT_ADDR, amt)).wait();
-      await (await vault.redeem(amt, targetStr)).wait();
-      statusEl.textContent = `Redeemed ${amtStr} SunPLS for ${Number(ethers.formatEther(preview.plsToRedeemer)).toFixed(4)} PLS`;
-    });
-
-  // Trigger Epoch (Controller)
   document.getElementById("triggerEpochBtn").onclick = () =>
     withLoading(document.getElementById("triggerEpochBtn"), async () => {
       await (await controller.triggerEpoch()).wait();
@@ -1121,7 +1056,6 @@
       statusEl.textContent = "Epoch triggered — rate engine updated!";
     });
 
-  // Update Oracle
   document.getElementById("updateOracleBtn").onclick = async () => {
     const el = document.getElementById("oracleStatus");
     try {
@@ -1141,7 +1075,6 @@
     }
   };
 
-  // Wallet connect
   walletBtn.onclick = connectWallet;
 
   // ── How To Modal ──
@@ -1184,9 +1117,9 @@
       <h4>🔄 Redemption System</h4>
       <ul>
         <li>SunPLS can be redeemed for PLS from any eligible vault</li>
+        <li>Use the <strong>Vault Dashboard</strong> to find eligible vaults automatically — no address copy-paste needed</li>
         <li>R = the controller's redemption value (in WPLS per SunPLS) — adjusts each epoch based on peg deviation</li>
-        <li>Small fee goes to the vault owner whose collateral is redeemed</li>
-        <li>Vaults must be above the redemption ratio to be eligible</li>
+        <li>Small fee (0.5%) goes to the vault owner whose collateral is redeemed</li>
         <li>Spread = (P - R) / R, where both P and R are measured in WPLS per SunPLS</li>
       </ul>
 
@@ -1194,10 +1127,10 @@
       <ul>
         <li>Controller adjusts the stability fee (interest rate) each epoch based on oracle spread</li>
         <li>When SunPLS trades above R (positive spread), rate increases</li>
-<li>When SunPLS trades below R (negative spread), rate decreases</li>
-<li>R tracks the controller's internal redemption price in WPLS per SunPLS — moves slowly each epoch</li>
-<li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
+        <li>When SunPLS trades below R (negative spread), rate decreases</li>
         <li>R tracks the controller's internal redemption price in WPLS per SunPLS — moves slowly each epoch</li>
+        <li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
+      </ul>
 
       <h4>🛡️ Safety Protections</h4>
       <ul>
