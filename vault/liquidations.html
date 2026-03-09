@@ -6,9 +6,9 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>SunPLS – Liquidation Dashboard</title>
+  <title>SunPLS – Vault Dashboard</title>
   <link rel="icon" href="sunplslogo.png" type="image/png" />
-  <meta name="description" content="Real-time liquidation opportunities for SunPLS vaults on PulseChain." />
+  <meta name="description" content="Real-time liquidation and redemption opportunities for SunPLS vaults on PulseChain." />
   <meta name="theme-color" content="#f59e0b" />
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
@@ -170,8 +170,8 @@
 
   <div class="container">
     <img src="sunplslogo.png" class="logo" alt="SunPLS Logo" onerror="this.style.display='none'" />
-    <h1>Liquidation Dashboard</h1>
-    <h2>Real-Time SunPLS Vault Monitoring</h2>
+    <h1>SunPLS Vault Dashboard</h1>
+    <h2>Liquidations · Redemptions · Vault Monitor</h2>
 
     <div class="status" id="status"></div>
     <div class="error"  id="error"></div>
@@ -189,7 +189,7 @@
           <li><span class="highlight">Liquidation Cooldown:</span> 10 minutes between liquidations of the same vault</li>
           <li><span class="highlight">Process:</span> Approve SunPLS → liquidate vault → receive PLS reward</li>
           <li><span class="highlight">Interest Buffer:</span> Dashboard adds 1% buffer to handle debt growth during the transaction, capped at total vault debt</li>
-          <li><span class="highlight">Redemptions:</span> Any SunPLS holder can redeem against vaults at or below 150% ratio</li>
+          <li><span class="highlight">🔄 Redemptions live here:</span> Use the <strong>Redeemable</strong> tab below to find eligible vaults and redeem SunPLS for PLS — no need to copy-paste addresses manually</li>
           <li><span class="highlight">Redemption Rate:</span> R = controller's redemption value in WPLS per SunPLS — burn N SunPLS, receive N × R / 1e18 PLS</li>
           <li><span class="highlight">Redemption Fee:</span> 0.5% fee stays with the vault owner as compensation</li>
           <li><span class="highlight">Anti-Griefing Gap:</span> Vault cannot be liquidated within 5 minutes of being redeemed against</li>
@@ -199,7 +199,7 @@
     </div>
 
     <button class="btn scan" id="scanBtn" onclick="scanAll()">
-      🔍 Scan for Opportunities
+      🔍 Scan Vaults — Liquidations &amp; Redemptions
     </button>
 
     <div class="tabs" id="tabs" style="display:none">
@@ -208,7 +208,7 @@
         <div id="liqCount" style="font-size:1.5em;color:#ef4444">0</div>
       </div>
       <div class="tab" onclick="showTab('redeemable', event)">
-        <div style="font-size:0.75em;color:var(--muted)">Redeemable</div>
+        <div style="font-size:0.75em;color:#14b8a6">🔄 Redeem Here</div>
         <div id="redeemCount" style="font-size:1.5em;color:#14b8a6">0</div>
       </div>
       <div class="tab" onclick="showTab('risky', event)">
@@ -469,7 +469,7 @@
     if (data.length === 0) {
       const msgs = {
         liquidatable: "✅ No liquidation opportunities. All vaults above 110%!",
-        redeemable:   "ℹ️ No vaults currently eligible for redemption.",
+        redeemable:   "ℹ️ No vaults currently eligible for redemption. All vaults are above 150% ratio.",
         risky:        "✅ No at-risk vaults. All either liquidatable or healthy!",
         healthy:      "⚠️ No healthy vaults found."
       };
@@ -541,9 +541,10 @@
     } else if (currentTab === 'redeemable') {
       html += `
         <div class="stats-header teal">
-          <h2 style="color:#14b8a6">🔄 REDEEMABLE VAULTS</h2>
+          <h2 style="color:#14b8a6">🔄 REDEEM SUNPLS FOR PLS</h2>
           <div class="count">${data.length}</div>
-          <div style="color:var(--muted);margin-top:8px">Eligible for SunPLS redemption at R value</div>
+          <div style="color:var(--muted);margin-top:8px">Vaults eligible for redemption at R rate — pick one below</div>
+          <div style="color:#5eead4;font-size:0.82em;margin-top:6px">Enter amount → Preview → Redeem. No address copy-paste needed.</div>
         </div>
       `;
       for (const v of data) {
