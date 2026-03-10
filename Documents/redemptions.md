@@ -1,16 +1,16 @@
 # SunPLS Redemptions
 
-Redemptions allow any SunPLS holder to exchange SunPLS directly for PLS at the system equilibrium price.
+Redemptions allow any SunPLS holder to exchange SunPLS directly for PLS at the current value of R.
 
-This mechanism creates a **hard economic price floor** for SunPLS and plays a critical role in maintaining long-term stability.
+This mechanism creates arbitrage pressure that converges market price toward R and plays a critical role in maintaining long-term stability.
 
-Unlike market trades on decentralized exchanges, redemptions occur directly through the protocol using the system equilibrium price `R`.
+Unlike market trades on decentralized exchanges, redemptions occur directly through the protocol using the internal equilibrium value `R`.
 
 ```
 1 SunPLS → (1 / R) PLS
 ```
 
-If the market price of SunPLS falls below this value, arbitrage incentives encourage users to redeem SunPLS and restore price equilibrium.
+If the market price of SunPLS falls below R, arbitrage incentives encourage users to redeem SunPLS and restore price equilibrium.
 
 ---
 
@@ -20,20 +20,20 @@ Redemptions serve several important functions in the SunPLS protocol.
 
 They:
 
-- create a guaranteed minimum value for SunPLS  
-- prevent prolonged price deviations below equilibrium  
+- create arbitrage incentives that pressure market price toward R
+- reduce prolonged price deviations below equilibrium  
 - remove excess supply from circulation  
 - maintain confidence in the system
 
 Without redemptions, a collateralized stable asset could trade below its intrinsic value for extended periods.
 
-Redemptions eliminate this possibility.
+Redemptions create continuous arbitrage pressure that works to correct such deviations.
 
 ---
 
 # Redemption Price
 
-The redemption price is determined by the **equilibrium price `R`** maintained by the Controller.
+The redemption price is determined by the **equilibrium value `R`** maintained by the Controller.
 
 ```
 Redemption Rate = 1 / R
@@ -99,7 +99,7 @@ This keeps the system balanced by gradually reducing excess collateralization.
 
 ```
 User redeems: 100 SunPLS
-Equilibrium price: R = 1 PLS per SunPLS
+Equilibrium value: R = 1 PLS per SunPLS
 ```
 
 Result:
@@ -114,7 +114,7 @@ Total SunPLS supply decreases because the redeemed tokens cancel outstanding vau
 
 ---
 
-# Price Floor Mechanism
+# Arbitrage Convergence Mechanism
 
 Redemptions create a natural arbitrage opportunity when SunPLS trades below equilibrium.
 
@@ -122,7 +122,7 @@ Example:
 
 ```
 DEX price = 0.90 PLS per SunPLS
-Redemption value = 1.00 PLS per SunPLS
+R = 1.00 PLS per SunPLS
 ```
 
 Arbitrage strategy:
@@ -133,7 +133,7 @@ Redeem for 1.00 PLS
 Profit = 0.10 PLS
 ```
 
-This process continues until market price returns toward equilibrium.
+This process continues until market price converges toward R. R itself is a derived system state, not a guaranteed bound — it moves as the controller responds to sustained deviation.
 
 ---
 
@@ -279,7 +279,7 @@ Consider the following situation:
 
 ```
 SunPLS market price drops to 0.95 PLS
-Equilibrium price R = 1.00
+Equilibrium value R = 1.00
 ```
 
 Arbitrage occurs:
@@ -291,7 +291,7 @@ Redeem for collateral
 ↓
 SunPLS supply shrinks
 ↓
-Price returns toward 1.00
+Price returns toward R
 ```
 
 This mechanism stabilizes the protocol without centralized intervention.
@@ -300,12 +300,12 @@ This mechanism stabilizes the protocol without centralized intervention.
 
 # Summary
 
-Redemptions provide the **price floor mechanism** of the SunPLS protocol.
+Redemptions are the **arbitrage convergence mechanism** of the SunPLS protocol.
 
 They ensure that:
 
-- SunPLS retains intrinsic value
-- supply contracts when price falls
+- arbitrage incentives pressure market price toward R
+- supply contracts when price falls below R
 - arbitrage restores market equilibrium
 
-Combined with vault liquidations and controller-based monetary policy, redemptions form a key component of SunPLS’ autonomous stabilization system.
+Combined with vault liquidations and controller-based monetary policy, redemptions form a key component of SunPLS' autonomous stabilization system.
