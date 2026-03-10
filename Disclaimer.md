@@ -59,7 +59,7 @@ SunPLS depends on the value of its collateral asset (PLS).
 If the price of PLS experiences significant volatility or rapid declines, the system may experience:
 
 - large liquidation events
-- temporary peg deviations
+- temporary price deviations from equilibrium
 - market instability
 
 These outcomes are inherent to collateralized financial systems.
