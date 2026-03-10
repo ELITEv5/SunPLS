@@ -85,7 +85,7 @@ It compares:
 
 ```
 P = market price
-R = equilibrium price
+R = internal equilibrium value
 ```
 
 and adjusts the system interest rate `r`.
@@ -106,7 +106,7 @@ Key controller features:
 - dynamic gain decay
 - oracle fallback modes
 - emergency system protection
-- bounded equilibrium price movement
+- bounded equilibrium value movement
 
 The controller executes once per **epoch** (typically hourly).
 
@@ -161,15 +161,13 @@ Liquidations guarantee:
 
 ## Redemptions
 
-Redemptions allow users to exchange SunPLS directly for PLS at the system price.
+Redemptions allow users to exchange SunPLS directly for PLS at the current value of R.
 
 ```
 1 SunPLS → (1 / R) PLS
 ```
 
-Redemptions create a **hard price floor**.
-
-If SunPLS trades below redemption value:
+If SunPLS trades below R:
 
 ```
 buy SunPLS on market
@@ -177,7 +175,7 @@ redeem for PLS
 profit
 ```
 
-This arbitrage mechanism pushes the market price back toward equilibrium.
+This arbitrage mechanism creates pressure that converges market price toward R. R itself is a derived system state, not a guaranteed bound — it moves as the controller responds to sustained deviation.
 
 ---
 
