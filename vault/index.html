@@ -603,12 +603,12 @@
       document.body.style.boxShadow = "";
     } else if (newState === "warn") {
       banner.className = "warn";
-      alertTxt.textContent = ` Vault Warning — Ratio ${ratioPct.toFixed(1)}% — approaching liquidation threshold. Consider adding collateral.`;
+      alertTxt.textContent = `Vault Warning — Ratio ${ratioPct.toFixed(1)}% — approaching liquidation threshold. Consider adding collateral.`;
       banner.style.display = "block";
       document.body.style.boxShadow = "inset 0 0 0 3px rgba(245,158,11,0.4)";
     } else {
       banner.className = "risk";
-      alertTxt.textContent = ` LIQUIDATION RISK — Ratio ${ratioPct.toFixed(1)}% — vault is in danger! Add collateral or repay debt NOW.`;
+      alertTxt.textContent = `LIQUIDATION RISK — Ratio ${ratioPct.toFixed(1)}% — vault is in danger! Add collateral or repay debt NOW.`;
       banner.style.display = "block";
       document.body.style.boxShadow = "inset 0 0 0 3px rgba(239,68,68,0.6)";
     }
@@ -725,15 +725,6 @@
   async function loadControllerState() {
     try {
       const s = await controller.getCurrentState();
-      console.log("Controller state raw:", {
-        redemptionValue: s.redemptionValue.toString(),
-        currentRate: s.currentRate.toString(),
-        epochs: s.epochs.toString(),
-        timeUntilNext: s.timeUntilNext.toString(),
-        canTrigger: s.canTrigger,
-        limiterHitCount: s.limiterHitCount.toString()
-      });
-
       currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
 
       const Rraw = Number(ethers.formatEther(currentR));
@@ -753,7 +744,7 @@
       document.getElementById("ctrlRate").textContent    = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
       document.getElementById("ctrlEpochs").textContent  = epochs.toString();
       document.getElementById("ctrlNext").textContent    = untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
-      document.getElementById("ctrlCan").textContent     = canTrig ? " Yes" : " No";
+      document.getElementById("ctrlCan").textContent     = canTrig ? "Yes" : "No";
       document.getElementById("ctrlLimiter").textContent = limHits.toString();
 
       const oracleRaw = Number(ethers.formatEther(price));
@@ -881,11 +872,11 @@
         </div>
         <div class="stat">
           <div class="label">Liquidatable</div>
-          <div class="value ${i.liquidatable ? 'risk' : 'safe'}">${i.liquidatable ? ' YES' : ' No'}</div>
+          <div class="value ${i.liquidatable ? 'risk' : 'safe'}">${i.liquidatable ? 'YES' : 'No'}</div>
         </div>
         <div class="stat">
           <div class="label">Oracle</div>
-          <div class="value ${i.oracleHealthy ? 'safe' : 'risk'}">${i.oracleHealthy ? ' OK' : ' Stale'}</div>
+          <div class="value ${i.oracleHealthy ? 'safe' : 'risk'}">${i.oracleHealthy ? 'OK' : 'Stale'}</div>
         </div>
       `;
 
@@ -898,7 +889,7 @@
         rtsPreview.style.color = "#fbbf24";
         rtsBtn.disabled = false;
       } else {
-        rtsPreview.textContent = " Already safe at 150%+";
+        rtsPreview.textContent = "Already safe at 150%+";
         rtsPreview.style.color = "#10b981";
         rtsBtn.disabled = true;
       }
@@ -1026,7 +1017,7 @@
       const newRatioBps = newDebt > 0n ? (info.collateralValueUSD * 10000n) / newDebt : 0n;
       const newRatioPct = Number(newRatioBps) / 100;
       const col = newRatioPct < 150 ? "#ef4444" : newRatioPct < 170 ? "#fbbf24" : "#10b981";
-      el.innerHTML = `<span style="color:${col}">New ratio ≈ ${newRatioPct.toFixed(1)}% ${newRatioPct < 150 ? " UNSAFE" : ""}</span>`;
+      el.innerHTML = `<span style="color:${col}">New ratio ≈ ${newRatioPct.toFixed(1)}% ${newRatioPct < 150 ? "UNSAFE" : ""}</span>`;
     } catch { el.textContent = ""; }
   });
 
@@ -1039,7 +1030,7 @@
       const info = await vault.vaultInfo(account);
       const repayWei = ethers.parseUnits(val.toString(), 18);
       if (repayWei > info.debt) {
-        el.innerHTML = `<span style="color:#fbbf24"> Exceeds debt of ${Number(ethers.formatEther(info.debt)).toFixed(4)} SunPLS</span>`;
+        el.innerHTML = `<span style="color:#fbbf24">Exceeds debt of ${Number(ethers.formatEther(info.debt)).toFixed(4)} SunPLS</span>`;
       } else {
         const remaining = info.debt - repayWei;
         el.textContent = `Remaining debt: ${Number(ethers.formatEther(remaining)).toFixed(4)} SunPLS`;
@@ -1170,11 +1161,11 @@
       const ratioPct = Number(info.ratio);
       const el = document.getElementById("riskText");
       if (info.liquidatable) {
-        el.innerHTML = `<span style="color:#ef4444"> LIQUIDATABLE NOW — ratio ${ratioPct.toFixed(1)}% — act immediately!</span>`;
+        el.innerHTML = `<span style="color:#ef4444">LIQUIDATABLE NOW — ratio ${ratioPct.toFixed(1)}% — act immediately!</span>`;
       } else if (ratioPct < 170) {
-        el.innerHTML = `<span style="color:#fbbf24"> At risk — ratio ${ratioPct.toFixed(1)}% — consider adding collateral</span>`;
+        el.innerHTML = `<span style="color:#fbbf24">At risk — ratio ${ratioPct.toFixed(1)}% — consider adding collateral</span>`;
       } else {
-        el.innerHTML = `<span style="color:#10b981"> Safe — ratio ${ratioPct.toFixed(1)}%</span>`;
+        el.innerHTML = `<span style="color:#10b981">Safe — ratio ${ratioPct.toFixed(1)}%</span>`;
       }
     });
 
@@ -1407,11 +1398,9 @@
       const t = minT + (rangeT / tLabels) * i;
       const x = xOf(t);
       const d = new Date(t * 1000);
-      const label = rangeT < 3600
+      const label = rangeT < 86400
         ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-        : rangeT < 86400
-          ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-          : d.toLocaleDateString([], {month:'short', day:'numeric'});
+        : d.toLocaleDateString([], {month:'short', day:'numeric'});
       ctx.fillText(label, x, H - 6);
     }
 
@@ -1466,9 +1455,9 @@
 
   async function loadChartHistory() {
     if (!oracle || !provider) return;
-    const statusEl = document.getElementById("chartStatus");
+    const chartStatusEl = document.getElementById("chartStatus");
     try {
-      statusEl.textContent = "Loading on-chain price history...";
+      chartStatusEl.textContent = "Loading on-chain price history...";
       const latest = await provider.getBlockNumber();
       const CHUNK  = 10000;
       const tempPoints = [];
@@ -1517,14 +1506,14 @@
 
       chartLoaded = true;
       const count = chartPoints.length;
-      statusEl.textContent = count > 0
+      chartStatusEl.textContent = count > 0
         ? `${count} data points loaded — live updates every 60s`
         : "No historical events found yet — live tracking started";
 
       drawChart();
       saveChartCache();
     } catch (e) {
-      statusEl.textContent = "History load failed — live tracking only";
+      chartStatusEl.textContent = "History load failed — live tracking only";
       console.warn("Chart history error:", e.message);
       drawChart();
     }
