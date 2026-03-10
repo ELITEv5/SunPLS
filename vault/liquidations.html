@@ -299,23 +299,43 @@
     } catch { price = 0n; }
   }
 
+  // ── Chunked vault owner scan — avoids RPC block range limits ──
   async function getAllVaultOwners() {
+    const CHUNK  = 10000;
+    const owners = new Set();
+    let latest;
+
     try {
-      const depositFilter = vault.filters.Deposit();
-      const mintFilter    = vault.filters.Mint();
-      const [depEvents, mintEvents] = await Promise.all([
-        vault.queryFilter(depositFilter, 0, 'latest'),
-        vault.queryFilter(mintFilter, 0, 'latest')
-      ]);
-      const all = [
-        ...depEvents.map(e => e.args.user),
-        ...mintEvents.map(e => e.args.user)
-      ];
-      return [...new Set(all)];
+      latest = await provider.getBlockNumber();
     } catch (e) {
-      console.error("Error scanning vaults:", e);
+      console.error("Could not get block number:", e);
       return [];
     }
+
+    const totalChunks = Math.ceil((latest + 1) / CHUNK);
+    let chunksScanned = 0;
+
+    const progressEl = document.getElementById("scanProgress");
+
+    for (let from = 0; from <= latest; from += CHUNK) {
+      const to = Math.min(from + CHUNK - 1, latest);
+      try {
+        const [dep, mint] = await Promise.all([
+          vault.queryFilter(vault.filters.Deposit(), from, to),
+          vault.queryFilter(vault.filters.Mint(),    from, to)
+        ]);
+        dep.forEach(e => owners.add(e.args.user));
+        mint.forEach(e => owners.add(e.args.user));
+      } catch { /* skip failed chunk */ }
+
+      chunksScanned++;
+      if (progressEl) {
+        const pct = Math.round((chunksScanned / totalChunks) * 100);
+        progressEl.textContent = `Scanning blocks... ${pct}% (${owners.size} vaults found so far)`;
+      }
+    }
+
+    return [...owners];
   }
 
   async function scanAll() {
@@ -331,9 +351,9 @@
     document.getElementById("error").textContent = "";
 
     results.innerHTML = `
-      <div class="loading">
-        🔍 Scanning all vaults...<br>
-        <div style="font-size:0.8em;margin-top:10px;color:var(--muted)">This may take 30–60 seconds</div>
+      <div class="loading" id="scanProgress">
+        Scanning blocks... 0%
+        <div style="font-size:0.8em;margin-top:10px;color:var(--muted)">Chunked scan — 10k blocks at a time</div>
       </div>
     `;
 
@@ -399,16 +419,12 @@
               vd.bonusBps    = 0;
             }
 
-            // Profit estimate:
-            //   reward (PLS) and gasCost (PLS) are both in PLS units
-            //   profit in SunPLS = (rewardPLS - gasCostPLS) * 1e18 / price
             const gasEst     = 150000n;
             const feeData    = await provider.getFeeData();
             const gasCostWei = gasEst * (feeData.gasPrice || 1000000n);
             const gasCostPLS = Number(ethers.formatEther(gasCostWei));
             const profitPLS  = vd.reward - gasCostPLS;
             const priceNum   = price > 0n ? Number(ethers.formatEther(price)) : 0;
-            // profitSunPLS = profitPLS / price  (SunPLS units, meaningful for comparison)
             vd.profitSunPLS = priceNum > 0 ? profitPLS / priceNum : 0;
             vd.profitPLS    = profitPLS;
             vd.isProfitable = profitPLS > 0;
@@ -746,7 +762,6 @@
       if (btn) { btn.disabled = true; btn.textContent = "⏳ Processing..."; }
       document.getElementById("error").textContent = "";
 
-      // Fetch fresh liquidation info immediately before executing
       if (btn) btn.textContent = "⏳ Fetching live data...";
       const liqInfo  = await vault.liquidationInfo(ownerAddress);
       const vData    = await vault.vaults(ownerAddress);
@@ -755,8 +770,6 @@
 
       if (minRepay === 0n) throw new Error("Vault is no longer liquidatable — it may have been rescued or already liquidated. Click Rescan.");
 
-      // Add 1% buffer for interest accrual between scan and tx,
-      // but cap at total vault debt to avoid "Invalid repay amount" revert
       const buffered         = (minRepay * 10100n) / 10000n;
       const minRepayBuffered = buffered > totalDebt ? totalDebt : buffered;
 
@@ -778,7 +791,6 @@
       const liqTx   = await vault.liquidate(ownerAddress, minRepayBuffered);
       const receipt = await liqTx.wait();
 
-      // Parse reward from Liquidation event
       let rewardPLS = "unknown";
       try {
         const liqEvent = receipt.logs.find(log => {
@@ -807,8 +819,6 @@
         msg = `Liquidation cooldown active for this vault (10-min between liquidations). Try another or wait.`;
       } else if (msg.toLowerCase().includes("recently redeemed")) {
         msg = `Vault was recently redeemed against — 5-minute anti-griefing gap in effect. Try again shortly.`;
-      } else if (msg.toLowerCase().includes("insufficient sunpls") || msg.toLowerCase().includes("insufficient")) {
-        // keep as-is, already descriptive
       }
 
       document.getElementById("error").textContent = msg;
