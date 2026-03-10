@@ -438,9 +438,6 @@ and P/R/r feedback model used to construct the protocol.
 ProjectUSD specification: https://github.com/Aqua75/ProjectUSD
 
 The intellectual lineage traces from Hayek's 1976 *Denationalisation of Money* 
-through the ProjectUSD specification to this implementation. The spec author 
-and ELITE TEAM6 arrived at compatible conclusions independently — the spec 
-from economic theory, the implementation from practical CDP building experience 
-on PulseChain.
+through the ProjectUSD specification to this implementation. The spec author and ELITE TEAM6 arrived at compatible conclusions independently — the spec from first-principles reasoning about trustless monetary architecture, the implementation from practical CDP building experience on PulseChain. Notably, the spec author was aware of Hayek but did not realize until later how precisely the specification reproduced his conclusions. This is corroboration, not citation — three independent lines of reasoning converging on the same architecture across 50 years.
 
 ---
