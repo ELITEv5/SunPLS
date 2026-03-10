@@ -42,9 +42,9 @@ Purpose:
 
 ---
 
-## I3 — Equilibrium Price Floor
+## I3 — Equilibrium Value Minimum Bound
 
-The equilibrium price must never fall below a minimum value.
+R must never fall below a minimum value.
 
 ```
 R ≥ R_FLOOR
@@ -59,7 +59,7 @@ Purpose:
 
 ## I4 — Bounded Equilibrium Movement
 
-The equilibrium price may only move within a limited range per epoch.
+The equilibrium value may only move within a limited range per epoch.
 
 ```
 |ΔR| ≤ MAX_R_MOVE_BPS
@@ -186,7 +186,7 @@ Maintaining these invariants is critical for long-term system stability.
 
 The following on-chain variables allow public verification of system health:
 
-- `R` (equilibrium price)
+- `R` (equilibrium value)
 - `r` (borrowing rate)
 - `epochCount`
 - `limiterHits`
@@ -202,9 +202,9 @@ These telemetry values allow researchers and users to monitor system behavior in
 
 The SunPLS protocol relies on a small set of clearly defined invariants to maintain stability.
 
-By enforcing strict bounds on rates, equilibrium price movement, and liquidation eligibility, the system ensures that SunPLS remains solvent and predictable under a wide range of market conditions.
+By enforcing strict bounds on rates, equilibrium value movement, and liquidation eligibility, the system ensures that SunPLS remains solvent and predictable under a wide range of market conditions.
 
-These invariants form the mathematical foundation of the protocol’s autonomous monetary design.
+These invariants form the mathematical foundation of the protocol's autonomous monetary design.
 
 ---
 
