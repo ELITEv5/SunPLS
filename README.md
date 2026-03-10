@@ -21,6 +21,7 @@ SunPLS was developed following the **ProjectUSD specification guidelines**, whic
 # Table of Contents
 
 - Overview
+- Intellectual Lineage
 - ProjectUSD Specification
 - System Architecture
 - Core Components
@@ -61,6 +62,42 @@ Market Price
 ```
 
 This feedback loop allows the system to dynamically adjust borrowing incentives and supply conditions in response to market deviation.
+
+---
+
+---
+
+# Intellectual Lineage
+
+SunPLS sits at the intersection of two independent lines of thinking that arrived 
+at the same conclusion 50 years apart.
+
+In 1976, economist Friedrich Hayek published *Denationalisation of Money*, 
+arguing that government monopoly on currency issuance was the root cause of 
+monetary instability. His proposed solution: competing private currencies that 
+earn trust through demonstrated stability — not legal mandate, not institutional 
+backing, not governance decisions. Every central bank ignored him. He lacked the 
+trustless infrastructure to make it real.
+
+The ProjectUSD specification translated Hayek's vision into a concrete 
+architectural framework for autonomous stable assets — defining the P/R/r 
+feedback loop, the redemption floor, and the closed-loop stability guarantee 
+that requires no external reference, no oracle dependency on USD, and no human 
+discretion at any point in the system.
+
+SunPLS is the first live implementation of that specification.
+
+The architecture is not pegged to the dollar. It is not pegged to any external 
+asset. It defines its own internal equilibrium price R and defends it through 
+mathematics. The "bank" is immutable Solidity. The "monetary policy" is 
+a proportional controller that executes identically whether it processes 
+$100 or $100 million. No board meeting required.
+
+> *"If stablecoins truly become infrastructure then the systems that matter most 
+> will be the ones that no one controls."*
+> — ProjectUSD specification author
+
+SunPLS is that system.
 
 ---
 
@@ -322,19 +359,42 @@ The protocol behaves as a **self-contained economic machine**.
 
 ---
 
+---
+
 # Deployment
 
-Deployment order:
+## Canonical Deployment — v1.3 (Live)
 
+All contracts are immutable. No admin keys. No upgrade paths.
+After vault linking both token and controller are permanently latched.
+
+| Contract | Address |
+|---|---|
+| SunPLS Token v1.3 | `0x16cD95c278a7efbDA9ed6A17f9AcFcf1F6494D3F` |
+| SunPLSOracleV2 v1.2 | `0x7C853720c2D68Ba69FCcE08AC59E888E60Cb2Ea7` |
+| ProjectUSDController v4.3 | `0x59866633636B337203DDFc2C48163B32CB729b39` |
+| SunPLSVault v1.3 | `0x489C6999C39b2B34D1976A6daAc7E989F89679cE` |
+| SunPLS/WPLS PLP Pair | `0xE4C6728b20595527CCB39fd4dB23Cf3b3464Cb55` |
+
+Network: **PulseChain** (Chain ID 369)
+
+> ⚠️ A prior deployment (v1.2) exists on-chain with an inverted oracle price 
+> formula. Those contracts are non-functional and should be ignored. 
+> The v1.3 addresses above are the canonical live system.
+
+## Deploy Order
 ```
-1. Deploy SunPLS Token
-2. Deploy Oracle
-3. Deploy Controller
-4. Deploy Vault
-5. Link token and controller to vault
+1. Deploy SunPLS Token        — constructor mints 1000 SUNPLS to deployer
+2. Seed PulseX WPLS/SunPLS pair
+3. Deploy Oracle              — reads live pair
+4. Deploy Controller          — _initialR = oracle.lastPrice()
+5. Deploy Vault
+6. token.setVault(vault)      — permanent latch, one-time only
+7. controller.setVault(vault) — permanent latch, one-time only
 ```
 
-After linking, the system becomes **fully autonomous**.
+After step 7 the system is fully autonomous. No further deployer action 
+is possible or required.
 
 ---
 
@@ -367,6 +427,20 @@ Use at your own risk.
 
 ---
 
+---
+
 # Acknowledgements
 
-SunPLS was developed following the **ProjectUSD autonomous stable asset specification**, which provided the design framework and safety invariants used to construct the protocol architecture.
+SunPLS was developed following the **ProjectUSD autonomous stable asset 
+specification**, which provided the architectural framework, safety invariants, 
+and P/R/r feedback model used to construct the protocol.
+
+ProjectUSD specification: https://github.com/Aqua75/ProjectUSD
+
+The intellectual lineage traces from Hayek's 1976 *Denationalisation of Money* 
+through the ProjectUSD specification to this implementation. The spec author 
+and ELITE TEAM6 arrived at compatible conclusions independently — the spec 
+from economic theory, the implementation from practical CDP building experience 
+on PulseChain.
+
+---
