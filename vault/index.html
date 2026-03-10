@@ -152,6 +152,26 @@
     .value.warn { color: var(--warn); text-shadow: 0 0 8px rgba(245,158,11,0.5); }
     .value.risk { color: var(--risk); text-shadow: 0 0 8px rgba(239,68,68,0.5); }
 
+    /* ── PRICE CHART ── */
+    #chartCard { border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.04); }
+    #chartCard h3 {
+      color: var(--sun); margin: 0 0 10px; font-size: 0.9em;
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none;
+    }
+    #chartCard h3:hover { color: var(--sun2); }
+    .chart-toggle { transition: transform 0.3s; font-size: 0.85em; }
+    .chart-toggle.collapsed { transform: rotate(-90deg); }
+    .chart-wrap { overflow: hidden; transition: max-height 0.3s ease; max-height: 260px; }
+    .chart-wrap.collapsed { max-height: 0; }
+    #priceCanvas { width: 100%; height: 200px; display: block; }
+    .chart-legend {
+      display: flex; gap: 16px; justify-content: center;
+      font-size: 0.78em; margin-top: 6px; flex-wrap: wrap;
+    }
+    .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+    .chart-status { text-align: center; font-size: 0.78em; color: var(--muted); margin-top: 4px; min-height: 1em; }
+
     /* ── PREVIEW / HELPER TEXT ── */
     .preview { color: #fbbf24; text-align: center; font-size: 0.88em; margin-top: 4px; min-height: 1.2em; }
     .helper { color: #78716c; text-align: center; font-size: 0.78em; margin-top: 6px; font-style: italic; }
@@ -237,6 +257,22 @@
 
     <div class="price" id="price">Loading oracle...</div>
     <div class="rate-display" id="rateDisplay">Stability Rate: — | R: —</div>
+
+    <!-- Price Chart -->
+    <div class="card" id="chartCard">
+      <h3 onclick="toggleChart()">
+        📈 P vs R Price History
+        <span class="chart-toggle" id="chartToggle">▼</span>
+      </h3>
+      <div class="chart-wrap" id="chartWrap">
+        <canvas id="priceCanvas"></canvas>
+        <div class="chart-legend">
+          <span><span class="legend-dot" style="background:#fbbf24"></span>Oracle Price (P)</span>
+          <span><span class="legend-dot" style="background:#818cf8"></span>Redemption Rate (R)</span>
+        </div>
+        <div class="chart-status" id="chartStatus">Loading price history...</div>
+      </div>
+    </div>
 
     <div class="status" id="status"></div>
     <div class="error"  id="error"></div>
@@ -530,6 +566,10 @@
       checkOracleHealth();
       setInterval(checkOracleHealth, 20000);
 
+      // Load chart history then start live tracking
+      await loadChartHistory();
+      setInterval(pushChartPoint, 60000);
+
     } catch (e) {
       errorEl.textContent = e.message || "Connection failed";
       console.error(e);
@@ -555,6 +595,8 @@
       else if (wplsPerSunPLS >= 1_000)    displayVal = (wplsPerSunPLS / 1_000).toFixed(2) + "K";
       else                                displayVal = wplsPerSunPLS.toFixed(4);
       document.getElementById("price").textContent = displayVal + " WPLS per SunPLS";
+      // Push live point to chart on every price refresh
+      pushChartPoint();
     } catch {
       document.getElementById("price").textContent = "Oracle offline";
       price = 0n;
@@ -1152,6 +1194,241 @@
   howModal.onclick = e => {
     if (e.target.className === "modal" || e.target.className === "close") howModal.style.display = "none";
   };
+
+  // ── Price Chart ──
+  // Stores {time, p, r} datapoints. Built from:
+  //   1. PriceUpdated + PublicRefresh oracle events (historical)
+  //   2. Live polling every 60s (extends forward in real time)
+
+  const chartPoints = []; // { time: unix seconds, p: float WPLS/SunPLS, r: float WPLS/SunPLS }
+  let chartLoaded = false;
+
+  function toggleChart() {
+    document.getElementById("chartWrap").classList.toggle("collapsed");
+    document.getElementById("chartToggle").classList.toggle("collapsed");
+  }
+
+  function fmtPrice(v) {
+    if (v >= 1_000_000) return (v/1_000_000).toFixed(2) + "M";
+    if (v >= 1_000)     return (v/1_000).toFixed(2) + "K";
+    return v.toFixed(2);
+  }
+
+  function drawChart() {
+    const canvas = document.getElementById("priceCanvas");
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W   = canvas.offsetWidth;
+    const H   = canvas.offsetHeight || 200;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+
+    if (chartPoints.length < 2) {
+      ctx.fillStyle = "rgba(245,158,11,0.08)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#d97706";
+      ctx.font = "13px Segoe UI, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Waiting for data...", W/2, H/2);
+      return;
+    }
+
+    const PAD = { top: 16, right: 12, bottom: 28, left: 52 };
+    const cW = W - PAD.left - PAD.right;
+    const cH = H - PAD.top  - PAD.bottom;
+
+    const allP  = chartPoints.map(d => d.p);
+    const allR  = chartPoints.map(d => d.r).filter(r => r > 0);
+    const allVals = [...allP, ...allR];
+    let minV = Math.min(...allVals);
+    let maxV = Math.max(...allVals);
+    const pad = (maxV - minV) * 0.08 || maxV * 0.05 || 1;
+    minV -= pad; maxV += pad;
+
+    const minT = chartPoints[0].time;
+    const maxT = chartPoints[chartPoints.length - 1].time;
+    const rangeT = maxT - minT || 1;
+    const rangeV = maxV - minV;
+
+    const xOf = t => PAD.left + ((t - minT) / rangeT) * cW;
+    const yOf = v => PAD.top  + (1 - (v - minV) / rangeV) * cH;
+
+    // Background
+    ctx.fillStyle = "rgba(7,0,15,0.6)";
+    ctx.fillRect(0, 0, W, H);
+
+    // Grid lines
+    ctx.strokeStyle = "rgba(245,158,11,0.08)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = PAD.top + (cH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+      const val = maxV - (rangeV / 4) * i;
+      ctx.fillStyle = "#92400e";
+      ctx.font = "10px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(fmtPrice(val), PAD.left - 4, y + 3);
+    }
+
+    // Time labels
+    ctx.fillStyle = "#92400e";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    const tLabels = 4;
+    for (let i = 0; i <= tLabels; i++) {
+      const t = minT + (rangeT / tLabels) * i;
+      const x = xOf(t);
+      const d = new Date(t * 1000);
+      const label = rangeT < 3600
+        ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+        : rangeT < 86400
+          ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+          : d.toLocaleDateString([], {month:'short', day:'numeric'});
+      ctx.fillText(label, x, H - 6);
+    }
+
+    // Draw R line (indigo)
+    const rPoints = chartPoints.filter(d => d.r > 0);
+    if (rPoints.length >= 2) {
+      ctx.beginPath();
+      ctx.strokeStyle = "#818cf8";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      rPoints.forEach((d, i) => {
+        i === 0 ? ctx.moveTo(xOf(d.time), yOf(d.r)) : ctx.lineTo(xOf(d.time), yOf(d.r));
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Draw P line (amber) with gradient fill
+    if (chartPoints.length >= 2) {
+      const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
+      grad.addColorStop(0, "rgba(251,191,36,0.25)");
+      grad.addColorStop(1, "rgba(251,191,36,0.0)");
+
+      ctx.beginPath();
+      chartPoints.forEach((d, i) => {
+        i === 0 ? ctx.moveTo(xOf(d.time), yOf(d.p)) : ctx.lineTo(xOf(d.time), yOf(d.p));
+      });
+      // Close path for fill
+      ctx.lineTo(xOf(chartPoints[chartPoints.length-1].time), PAD.top + cH);
+      ctx.lineTo(xOf(chartPoints[0].time), PAD.top + cH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Line on top
+      ctx.beginPath();
+      ctx.strokeStyle = "#fbbf24";
+      ctx.lineWidth = 2;
+      chartPoints.forEach((d, i) => {
+        i === 0 ? ctx.moveTo(xOf(d.time), yOf(d.p)) : ctx.lineTo(xOf(d.time), yOf(d.p));
+      });
+      ctx.stroke();
+
+      // Latest dot
+      const last = chartPoints[chartPoints.length - 1];
+      ctx.beginPath();
+      ctx.arc(xOf(last.time), yOf(last.p), 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#fbbf24";
+      ctx.fill();
+    }
+  }
+
+  async function loadChartHistory() {
+    if (!oracle || !provider) return;
+    const statusEl = document.getElementById("chartStatus");
+    try {
+      statusEl.textContent = "Loading on-chain price history...";
+      const latest = await provider.getBlockNumber();
+      const CHUNK  = 10000;
+      const tempPoints = [];
+
+      // Scan PriceUpdated and PublicRefresh events in chunks
+      for (let from = Math.max(0, latest - 200000); from <= latest; from += CHUNK) {
+        const to = Math.min(from + CHUNK - 1, latest);
+        try {
+          const [puEvents, prEvents] = await Promise.all([
+            oracle.queryFilter(oracle.filters.PriceUpdated(), from, to),
+            oracle.queryFilter(oracle.filters.PublicRefresh(), from, to)
+          ]);
+          puEvents.forEach(e => {
+            tempPoints.push({
+              time: Number(e.args.timestamp),
+              p:    Number(ethers.formatEther(e.args.newPrice)),
+              r:    0 // R not in this event, will be filled by controller polling
+            });
+          });
+          prEvents.forEach(e => {
+            tempPoints.push({
+              time: Number(e.args.timestamp),
+              p:    Number(ethers.formatEther(e.args.price)),
+              r:    0
+            });
+          });
+        } catch { continue; }
+      }
+
+      // Deduplicate by timestamp, keep highest
+      const byTime = {};
+      tempPoints.forEach(pt => {
+        if (!byTime[pt.time] || pt.p > byTime[pt.time].p) byTime[pt.time] = pt;
+      });
+
+      // Sort chronologically
+      const sorted = Object.values(byTime).sort((a, b) => a.time - b.time);
+
+      // Push into chartPoints
+      chartPoints.length = 0;
+      sorted.forEach(pt => chartPoints.push(pt));
+
+      // Overlay current R on all points (best approximation)
+      const Rraw = Number(ethers.formatEther(currentR));
+      chartPoints.forEach(pt => { if (pt.r === 0) pt.r = Rraw; });
+
+      chartLoaded = true;
+      const count = chartPoints.length;
+      statusEl.textContent = count > 0
+        ? `${count} data points loaded — live updates every 60s`
+        : "No historical events found yet — live tracking started";
+
+      drawChart();
+    } catch (e) {
+      statusEl.textContent = "History load failed — live tracking only";
+      console.warn("Chart history error:", e.message);
+      drawChart();
+    }
+  }
+
+  function pushChartPoint() {
+    if (!price || price === 0n) return;
+    const p = Number(ethers.formatEther(price));
+    const r = Number(ethers.formatEther(currentR));
+    const t = Math.floor(Date.now() / 1000);
+
+    // Don't duplicate if last point was within 30s
+    const last = chartPoints[chartPoints.length - 1];
+    if (last && Math.abs(last.time - t) < 30) {
+      last.p = p;
+      last.r = r;
+    } else {
+      chartPoints.push({ time: t, p, r });
+    }
+
+    // Cap at 500 points to avoid memory growth
+    if (chartPoints.length > 500) chartPoints.splice(0, chartPoints.length - 500);
+
+    drawChart();
+    if (chartPoints.length > 0) {
+      document.getElementById("chartStatus").textContent =
+        `${chartPoints.length} data points — last update ${new Date().toLocaleTimeString()}`;
+    }
+  }
+
+  window.addEventListener("resize", drawChart);
 
   // ── Nebula Background ──
   const nebula = document.getElementById("nebula");
