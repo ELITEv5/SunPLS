@@ -75,7 +75,7 @@ SunPLS extends the original controller design with additional safeguards necessa
 - oracle degradation modes
 - dynamic controller gain decay
 - emergency vault health protection
-- bounded equilibrium price adjustments
+- bounded equilibrium value adjustments
 - system telemetry for monitoring
 
 These changes transform the controller from a conceptual model into a **robust autonomous control system**.
@@ -119,7 +119,7 @@ Each component performs a clear role:
 | Controller | Adjusts system rate r based on deviation from R |
 | Vault | Manages collateralized borrowing |
 | Liquidations | Remove unsafe debt positions |
-| Redemptions | Maintain price floor through arbitrage |
+| Redemptions | Converge market price toward R through arbitrage |
 
 This structure allows the protocol to maintain stability with **fewer moving parts and a smaller attack surface**.
 
