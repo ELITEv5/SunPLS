@@ -5,7 +5,7 @@ This document describes the security assumptions, protections, and potential ris
 SunPLS is designed as a **minimal autonomous financial system**.  
 Security is achieved through deterministic rules, overcollateralization, and permissionless enforcement rather than administrative control.
 
-The protocol’s safety relies on a combination of:
+The protocol's safety relies on a combination of:
 
 - economic incentives  
 - strict invariants  
@@ -60,7 +60,7 @@ This prevents reliance on trusted actors.
 
 All system variables are publicly visible on-chain, including:
 
-- equilibrium price `R`
+- equilibrium value `R`
 - system borrowing rate `r`
 - oracle price `P`
 - vault collateral and debt
@@ -167,7 +167,7 @@ This ensures liquidations occur quickly even during volatile market conditions.
 
 # Redemption Security
 
-Redemptions enforce the system’s price floor.
+Redemptions create arbitrage pressure that converges market price toward R.
 
 Security protections include:
 
@@ -210,7 +210,7 @@ This ensures gradual policy evolution.
 
 ### Equilibrium Movement Limit
 
-The equilibrium price cannot shift too quickly.
+The equilibrium value cannot shift too quickly.
 
 ```
 |ΔR| ≤ MAX_R_MOVE_BPS
@@ -335,7 +335,7 @@ SunPLS security is based on several core pillars:
 
 - overcollateralized vaults  
 - deterministic liquidation rules  
-- redemption price floor  
+- redemption arbitrage convergence  
 - algorithmic monetary policy  
 - oracle resilience mechanisms  
 
