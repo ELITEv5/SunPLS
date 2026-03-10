@@ -81,7 +81,7 @@ trustless infrastructure to make it real.
 
 The ProjectUSD specification translated Hayek's vision into a concrete 
 architectural framework for autonomous stable assets — defining the P/R/r 
-feedback loop, the redemption floor, and the closed-loop stability guarantee 
+feedback loop, the redemption mechanism, and the closed-loop stability guarantee 
 that requires no external reference, no oracle dependency on USD, and no human 
 discretion at any point in the system.
 
@@ -189,7 +189,7 @@ It adjusts the system interest rate based on price deviation.
 Where:
 
 - **P** = oracle market price  
-- **R** = redemption value  
+- **R** = internal equilibrium value  
 - **r** = system interest rate  
 
 ### Controller Features
@@ -244,9 +244,9 @@ SunPLS holders can redeem tokens directly against vault collateral.
 PLS_out = SunPLS × R
 ```
 
-Where **R** is the redemption value determined by the controller.
+Where **R** is the internal equilibrium value maintained by the controller.
 
-If SunPLS trades below redemption value:
+If SunPLS trades below R:
 
 ```
 Buy SunPLS
@@ -254,7 +254,7 @@ Redeem for PLS
 Profit
 ```
 
-This creates a **hard price floor enforced through arbitrage**.
+This creates **arbitrage pressure that converges market price toward R**. R itself is a derived system state, not a guaranteed bound — it moves as the controller responds to sustained deviation.
 
 ---
 
@@ -334,7 +334,7 @@ The protocol enforces several invariants derived from the ProjectUSD specificati
 ```
 I1 — Vault solvency
 I2 — Rate bounds
-I3 — Redemption floor
+I3 — Redemption value integrity
 I4 — Oracle resilience
 I5 — System liveness
 I6 — Immutable contracts
