@@ -1200,8 +1200,39 @@
   //   1. PriceUpdated + PublicRefresh oracle events (historical)
   //   2. Live polling every 60s (extends forward in real time)
 
+  const CHART_CACHE_KEY = "sunpls_chart_v1";
   const chartPoints = []; // { time: unix seconds, p: float WPLS/SunPLS, r: float WPLS/SunPLS }
   let chartLoaded = false;
+
+  // Load cached points immediately — draws before wallet connects
+  (function loadChartCache() {
+    try {
+      const raw = localStorage.getItem(CHART_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach(pt => chartPoints.push(pt));
+        // drawChart() called below once DOM is ready
+        document.addEventListener("DOMContentLoaded", () => {
+          drawChart();
+          document.getElementById("chartStatus").textContent =
+            chartPoints.length + " cached points — refreshing from chain...";
+        });
+        // If DOM already ready
+        if (document.readyState !== "loading") {
+          drawChart();
+          const s = document.getElementById("chartStatus");
+          if (s) s.textContent = chartPoints.length + " cached points — refreshing from chain...";
+        }
+      }
+    } catch { /* ignore bad cache */ }
+  })();
+
+  function saveChartCache() {
+    try {
+      localStorage.setItem(CHART_CACHE_KEY, JSON.stringify(chartPoints.slice(-500)));
+    } catch { /* storage full */ }
+  }
 
   function toggleChart() {
     document.getElementById("chartWrap").classList.toggle("collapsed");
@@ -1396,6 +1427,7 @@
         : "No historical events found yet — live tracking started";
 
       drawChart();
+      saveChartCache();
     } catch (e) {
       statusEl.textContent = "History load failed — live tracking only";
       console.warn("Chart history error:", e.message);
@@ -1422,6 +1454,7 @@
     if (chartPoints.length > 500) chartPoints.splice(0, chartPoints.length - 500);
 
     drawChart();
+    saveChartCache();
     if (chartPoints.length > 0) {
       document.getElementById("chartStatus").textContent =
         `${chartPoints.length} data points — last update ${new Date().toLocaleTimeString()}`;
