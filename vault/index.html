@@ -65,7 +65,7 @@
     }
     @keyframes fadeIn { to { opacity: 1; } }
 
-    /* ── WALLET BUTTON ── */
+    /*  WALLET BUTTON  */
     .wallet {
       position: fixed; top: 18px; right: 18px;
       background: #0d0018; padding: 10px 20px;
@@ -76,7 +76,7 @@
     .wallet:hover { background: #1a0030; box-shadow: 0 0 18px var(--glow); }
     .wallet.connected { border-color: var(--sun2); color: var(--sun2); box-shadow: 0 0 20px var(--glow); }
 
-    /* ── MAIN CONTAINER ── */
+    /*  MAIN CONTAINER  */
     .container {
       background: rgba(7,0,15,0.85); backdrop-filter: blur(24px);
       border: 2px solid var(--sun); border-radius: 22px;
@@ -84,7 +84,7 @@
       max-width: 490px; width: 92%; margin: 80px 0 40px; position: relative; z-index: 10;
     }
 
-    /* ── LOGO ── */
+    /*  LOGO  */
     .logo {
       display: block; max-width: 220px; margin: 0 auto 10px;
       animation: pulseGlow 4s ease-in-out infinite;
@@ -108,7 +108,7 @@
       background: rgba(245,158,11,0.08); border: 1px solid var(--border);
     }
 
-    /* ── CARDS ── */
+    /*  CARDS  */
     .card {
       background: var(--card); border: 1px solid var(--border);
       border-radius: 14px; padding: 16px; margin-bottom: 12px;
@@ -117,7 +117,7 @@
     .card:hover { box-shadow: 0 0 14px rgba(245,158,11,0.18); }
     .card.highlight { border-color: var(--sun2); background: rgba(245,158,11,0.12); }
 
-    /* ── INPUTS & BUTTONS ── */
+    /*  INPUTS & BUTTONS  */
     input, .btn {
       width: 100%; display: block; font-size: 1em;
       font-weight: 700; text-align: center; border-radius: 10px;
@@ -143,7 +143,7 @@
     .btn.red { background: linear-gradient(135deg, #dc2626, #f97316); color: #fff; box-shadow: 0 4px 15px rgba(220,38,38,0.4); }
     .btn.teal { background: linear-gradient(135deg, #0d9488, #14b8a6); color: #fff; box-shadow: 0 4px 15px rgba(13,148,136,0.4); }
 
-    /* ── STATS GRID ── */
+    /*  STATS GRID  */
     .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: center; font-size: 0.88em; }
     .stat { background: rgba(245,158,11,0.1); padding: 10px; border-radius: 10px; }
     .label { color: var(--muted); font-size: 0.82em; margin-bottom: 3px; }
@@ -152,7 +152,7 @@
     .value.warn { color: var(--warn); text-shadow: 0 0 8px rgba(245,158,11,0.5); }
     .value.risk { color: var(--risk); text-shadow: 0 0 8px rgba(239,68,68,0.5); }
 
-    /* ── PRICE CHART ── */
+    /*  PRICE CHART  */
     #chartCard { border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.04); }
     #chartCard h3 {
       color: var(--sun); margin: 0 0 10px; font-size: 0.9em;
@@ -172,7 +172,7 @@
     .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
     .chart-status { text-align: center; font-size: 0.78em; color: var(--muted); margin-top: 4px; min-height: 1em; }
 
-    /* ── PREVIEW / HELPER TEXT ── */
+    /*  PREVIEW / HELPER TEXT  */
     .preview { color: #fbbf24; text-align: center; font-size: 0.88em; margin-top: 4px; min-height: 1.2em; }
     .helper { color: #78716c; text-align: center; font-size: 0.78em; margin-top: 6px; font-style: italic; }
     .warn-text {
@@ -184,12 +184,12 @@
       background: rgba(16,185,129,0.08); border-radius: 6px; border: 1px solid rgba(16,185,129,0.2);
     }
 
-    /* ── STATUS / ERROR ── */
+    /*  STATUS / ERROR  */
     .status, .error { text-align: center; font-weight: bold; margin-top: 10px; transition: opacity .4s ease; }
     .status { color: var(--safe); }
     .error  { color: var(--risk); }
 
-    /* ── CONTROLLER PANEL ── */
+    /*  CONTROLLER PANEL  */
     #controllerPanel {
       border-color: rgba(99,102,241,0.4);
       background: rgba(99,102,241,0.07);
@@ -199,16 +199,54 @@
     .ctrl-label { color: #a5b4fc; font-size: 0.78em; }
     .ctrl-val { color: #e0e7ff; font-weight: 700; }
 
-    /* ── REDEMPTION CARD ── */
+    /*  REDEMPTION CARD  */
     #redemptionCard { border-color: rgba(20,184,166,0.4); background: rgba(20,184,166,0.06); }
 
-    /* ── GLOBAL STATS ── */
+    /*  GLOBAL STATS  */
     #globalStats { margin-top: 12px; display: none; }
 
-    /* ── ORACLE STATUS ── */
+    /*  SKELETON LOADER  */
+    @keyframes shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg,
+        rgba(245,158,11,0.08) 25%,
+        rgba(245,158,11,0.18) 50%,
+        rgba(245,158,11,0.08) 75%);
+      background-size: 400px 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 8px; color: transparent !important;
+      pointer-events: none; user-select: none;
+    }
+    .skeleton * { visibility: hidden !important; }
+
+    /*  HEALTH ALERT BANNER  */
+    #healthAlert {
+      display: none; position: fixed; top: 0; left: 0; right: 0;
+      z-index: 99998; padding: 10px 16px;
+      text-align: center; font-weight: 700; font-size: 0.92em;
+      cursor: pointer; transition: background 0.4s ease;
+      border-bottom: 2px solid transparent;
+    }
+    #healthAlert.warn {
+      background: rgba(245,158,11,0.92);
+      border-color: #fbbf24; color: #000;
+    }
+    #healthAlert.risk {
+      background: rgba(239,68,68,0.95);
+      border-color: #fca5a5; color: #fff;
+      animation: pulseAlert 1.5s ease-in-out infinite;
+    }
+    @keyframes pulseAlert {
+      0%,100% { opacity: 1; } 50% { opacity: 0.75; }
+    }
+
+    /*  ORACLE STATUS  */
     #safetyCard { margin-top: 12px; }
 
-    /* ── FOOTER ── */
+    /*  FOOTER  */
     .footer {
       text-align: center; margin: 40px 0 20px; padding: 20px 10px; font-size: 0.85em;
       color: #d97706; border-top: 1px solid rgba(245,158,11,0.15);
@@ -223,7 +261,7 @@
     .contracts a:hover { color: var(--sun2); }
     .contracts .clabel { color: var(--sun); font-weight: 700; display: block; margin-bottom: 2px; }
 
-    /* ── MODAL ── */
+    /*  MODAL  */
     .modal {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.88); z-index: 10000; display: none;
@@ -247,6 +285,11 @@
   </style>
 </head>
 <body>
+  <!-- Health Alert Banner -->
+  <div id="healthAlert" onclick="document.getElementById('healthAlert').style.display='none'">
+    <span id="healthAlertText"></span> &nbsp;
+  </div>
+
   <div id="nebula"></div>
   <div class="wallet" id="walletBtn"><span id="walletText">Connect Wallet</span></div>
 
@@ -261,7 +304,7 @@
     <!-- Price Chart -->
     <div class="card" id="chartCard">
       <h3 onclick="toggleChart()">
-        📈 P vs R Price History
+         P vs R Price History
         <span class="chart-toggle" id="chartToggle">▼</span>
       </h3>
       <div class="chart-wrap" id="chartWrap">
@@ -382,25 +425,25 @@
       <div class="info-text">Safety feature: recover collateral after 30 days with zero debt</div>
     </div>
 
-    <!-- ═══════════════════════ REDEMPTION CARD ═══════════════════════ -->
+    <!--  REDEMPTION CARD  -->
     <div class="card" id="redemptionCard">
       <div style="text-align:center;font-size:0.9em;color:#5eead4;margin-bottom:10px;font-weight:700">
-        🔄 Redeem SunPLS for PLS
+         Redeem SunPLS for PLS
       </div>
       <div style="text-align:center;font-size:0.86em;color:var(--text);line-height:1.6;margin-bottom:14px">
         The Vault Dashboard automatically finds eligible vaults — no address copy-paste needed.
         Scan, pick a vault, enter your amount and redeem in one place.
       </div>
       <button class="btn teal" onclick="window.location.href='liquidations.html?t='+Date.now()">
-        🔄 Open Vault Dashboard to Redeem
+         Open Vault Dashboard to Redeem
       </button>
       <div class="helper">Finds the best eligible vaults for you automatically</div>
     </div>
 
-    <!-- ═══════════════════════ CONTROLLER PANEL ═══════════════════════ -->
+    <!--  CONTROLLER PANEL  -->
     <div class="card" id="controllerPanel">
       <div style="text-align:center;font-size:0.9em;color:#a5b4fc;margin-bottom:10px;font-weight:700">
-        ⚙️ Controller / Rate Engine
+         Controller / Rate Engine
       </div>
       <div class="ctrl-grid" id="ctrlGrid">
         <div class="ctrl-stat"><div class="ctrl-label">R Value</div><div class="ctrl-val" id="ctrlR">—</div></div>
@@ -421,7 +464,7 @@
     <div class="card" style="margin-bottom:12px">
       <button class="btn" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;box-shadow:0 4px 15px rgba(79,70,229,0.4)"
         onclick="window.location.href='liquidations.html?t='+Date.now()">
-        📊 Vault Dashboard — Liquidations &amp; Redemptions
+         Vault Dashboard — Liquidations &amp; Redemptions
       </button>
     </div>
 
@@ -438,7 +481,7 @@
     </div>
   </div>
 
-  <!-- ═══════════════════════ FOOTER ═══════════════════════ -->
+  <!--  FOOTER  -->
   <footer class="footer">
     <h3>Official Contracts (PulseChain)</h3>
     <div class="contracts">
@@ -469,14 +512,14 @@
                  display:inline-flex;align-items:center;gap:8px;padding:10px 20px;
                  border:1px solid var(--border);border-radius:10px;
                  background:rgba(245,158,11,0.06);transition:all 0.2s">
-          📄 github.com/ELITEv5/SunPLS
+           github.com/ELITEv5/SunPLS
         </a>
       </div>
     </div>
   </footer>
 
   <script>
-  // ═══════════════════════════════════════════════════════════════════
+  // 
   // SUNPLS VAULT INTERFACE
   // Contracts: Vault, Token (SunPLS), Oracle (TWAP), Controller (R-value)
   // Chain: PulseChain (369)
@@ -488,30 +531,30 @@
   // Therefore:
   //   PLS value of N SunPLS  = N * price / 1e18
   //   SunPLS value of N PLS  = N * 1e18 / price
-  // ═══════════════════════════════════════════════════════════════════
+  // 
 
   const ethers = window.ethers;
 
-  // ── Contract Addresses ──
+  //  Contract Addresses 
   const VAULT_ADDR      = "0x489C6999C39b2B34D1976A6daAc7E989F89679cE";
   const TOKEN_ADDR      = "0x16cD95c278a7efbDA9ed6A17f9AcFcf1F6494D3F";
   const ORACLE_ADDR     = "0x7C853720c2D68Ba69FCcE08AC59E888E60Cb2Ea7";
   const CONTROLLER_ADDR = "0x59866633636B337203DDFc2C48163B32CB729b39";
 
-  // ── Global State ──
+  //  Global State 
   let provider, signer, vault, token, oracle, controller, account;
   let price = 0n;
   let currentR = 1n * (10n ** 18n); // R in 1e18 — WPLS per SunPLS
   const DECIMALS = 10n ** 18n;
 
-  // ── DOM Refs ──
+  //  DOM Refs 
   const statusEl  = document.getElementById("status");
   const errorEl   = document.getElementById("error");
   const statsEl   = document.getElementById("stats");
   const walletText = document.getElementById("walletText");
   const walletBtn  = document.getElementById("walletBtn");
 
-  // ── Load ABIs from JSON files ──
+  //  Load ABIs from JSON files 
   async function loadABIs() {
     const [v, t, o, c] = await Promise.all([
       fetch("sunpls-vault-abi.json").then(r => r.json()),
@@ -522,7 +565,56 @@
     return [v, t, o, c];
   }
 
-  // ── Connect Wallet ──
+  //  Skeleton Loader 
+  let dataLoaded = false;
+
+  function showSkeleton() {
+    if (dataLoaded) return;
+    const els = ["stats", "totalColl", "totalDebt", "sysHealth", "yourShare",
+                 "ctrlR", "ctrlRate", "ctrlEpochs", "ctrlNext", "ctrlCan", "ctrlLimiter"];
+    els.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add("skeleton");
+    });
+  }
+
+  function hideSkeleton() {
+    dataLoaded = true;
+    document.querySelectorAll(".skeleton").forEach(el => el.classList.remove("skeleton"));
+  }
+
+  //  Vault Health Alert 
+  let lastHealthState = "ok"; // "ok" | "warn" | "risk"
+
+  function checkHealthAlert(ratioPct) {
+    const banner   = document.getElementById("healthAlert");
+    const alertTxt = document.getElementById("healthAlertText");
+    if (!banner || isNaN(ratioPct) || ratioPct > 1e9) return;
+
+    let newState = "ok";
+    if (ratioPct < 110)      newState = "risk";
+    else if (ratioPct < 130) newState = "warn";
+
+    if (newState === lastHealthState) return; // no change
+    lastHealthState = newState;
+
+    if (newState === "ok") {
+      banner.style.display = "none";
+      document.body.style.boxShadow = "";
+    } else if (newState === "warn") {
+      banner.className = "warn";
+      alertTxt.textContent = ` Vault Warning — Ratio ${ratioPct.toFixed(1)}% — approaching liquidation threshold. Consider adding collateral.`;
+      banner.style.display = "block";
+      document.body.style.boxShadow = "inset 0 0 0 3px rgba(245,158,11,0.4)";
+    } else {
+      banner.className = "risk";
+      alertTxt.textContent = ` LIQUIDATION RISK — Ratio ${ratioPct.toFixed(1)}% — vault is in danger! Add collateral or repay debt NOW.`;
+      banner.style.display = "block";
+      document.body.style.boxShadow = "inset 0 0 0 3px rgba(239,68,68,0.6)";
+    }
+  }
+
+  //  Connect Wallet 
   async function connectWallet() {
     try {
       if (!window.ethereum) return alert("Please install MetaMask");
@@ -559,7 +651,9 @@
 
       await detectOraclePrecision();
       await fetchCooldown();
+      showSkeleton();
       await Promise.all([updatePrice(), loadVault(), loadGlobalStats(), loadControllerState()]);
+      hideSkeleton();
       setInterval(updatePrice, 60000);
       setInterval(loadControllerState, 30000);
       setInterval(loadGlobalStats, 60000);
@@ -576,7 +670,7 @@
     }
   }
 
-  // ── Oracle precision check (non-critical) ──
+  //  Oracle precision check (non-critical) 
   async function detectOraclePrecision() {
     try {
       const p = await oracle.PRECISION();
@@ -603,7 +697,7 @@
     }
   }
 
-  // ── Oracle health check ──
+  //  Oracle health check 
   async function checkOracleHealth() {
     const el  = document.getElementById("oracleStatus");
     const btn = document.getElementById("updateOracleBtn");
@@ -627,7 +721,7 @@
     }
   }
 
-  // ── Load Controller / Rate Engine State ──
+  //  Load Controller / Rate Engine State 
   async function loadControllerState() {
     try {
       const s = await controller.getCurrentState();
@@ -659,7 +753,7 @@
       document.getElementById("ctrlRate").textContent    = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
       document.getElementById("ctrlEpochs").textContent  = epochs.toString();
       document.getElementById("ctrlNext").textContent    = untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
-      document.getElementById("ctrlCan").textContent     = canTrig ? "✅ Yes" : "⏳ No";
+      document.getElementById("ctrlCan").textContent     = canTrig ? " Yes" : " No";
       document.getElementById("ctrlLimiter").textContent = limHits.toString();
 
       const oracleRaw = Number(ethers.formatEther(price));
@@ -677,7 +771,7 @@
     }
   }
 
-  // ── Load Global System Stats ──
+  //  Load Global System Stats 
   async function loadGlobalStats() {
     try {
       const [totalColl, totalDebt, health] = await Promise.all([
@@ -716,7 +810,7 @@
     }
   }
 
-  // ── Conversions ──
+  //  Conversions 
   // Oracle price = WPLS per SunPLS (1e18-scaled)
   //   SunPLS value of N PLS  = N * 1e18 / price
   //   PLS value of N SunPLS  = N * price / 1e18
@@ -746,12 +840,13 @@
     } catch { WITHDRAW_COOLDOWN_SECS = 300; }
   }
 
-  // ── Load Vault Data ──
+  //  Load Vault Data 
   async function loadVault() {
     try {
       const i = await vault.vaultInfo(account);
       const ratioPct     = Number(i.ratio);
       const ratioClass   = ratioPct < 150 ? "risk" : ratioPct < 170 ? "warn" : "safe";
+      checkHealthAlert(ratioPct);
       const ratioDisplay = ratioPct > 1e9 ? "Infinite" : ratioPct.toFixed(1) + "%";
 
       const redemptionRaw = Number(ethers.formatEther(i.redemptionVal));
@@ -786,15 +881,15 @@
         </div>
         <div class="stat">
           <div class="label">Liquidatable</div>
-          <div class="value ${i.liquidatable ? 'risk' : 'safe'}">${i.liquidatable ? '⚠️ YES' : '✅ No'}</div>
+          <div class="value ${i.liquidatable ? 'risk' : 'safe'}">${i.liquidatable ? ' YES' : ' No'}</div>
         </div>
         <div class="stat">
           <div class="label">Oracle</div>
-          <div class="value ${i.oracleHealthy ? 'safe' : 'risk'}">${i.oracleHealthy ? '✅ OK' : '⚠️ Stale'}</div>
+          <div class="value ${i.oracleHealthy ? 'safe' : 'risk'}">${i.oracleHealthy ? ' OK' : ' Stale'}</div>
         </div>
       `;
 
-      // ── Repay to Safe preview ──
+      //  Repay to Safe preview 
       const needed = await vault.repayToHealth(account);
       const rtsPreview = document.getElementById("repayToSafePreview");
       const rtsBtn     = document.getElementById("repayToSafeBtn");
@@ -803,12 +898,12 @@
         rtsPreview.style.color = "#fbbf24";
         rtsBtn.disabled = false;
       } else {
-        rtsPreview.textContent = "✓ Already safe at 150%+";
+        rtsPreview.textContent = " Already safe at 150%+";
         rtsPreview.style.color = "#10b981";
         rtsBtn.disabled = true;
       }
 
-      // ── Mint Max preview ──
+      //  Mint Max preview 
       const mmPreview = document.getElementById("mintMaxPreview");
       const mmBtn     = document.getElementById("mintMaxBtn");
       if (i.mintable > 0n) {
@@ -825,7 +920,7 @@
         mmBtn.disabled = true;
       }
 
-      // ── Withdraw Max preview ──
+      //  Withdraw Max preview 
       const wmPreview  = document.getElementById("withdrawMaxPreview");
       const wmBtn      = document.getElementById("withdrawMaxBtn");
       const wmCooldown = document.getElementById("withdrawCooldownWarning");
@@ -867,7 +962,7 @@
         }
       }
 
-      // ── Emergency Unlock check ──
+      //  Emergency Unlock check 
       const emCard    = document.getElementById("emergencyCard");
       const emPreview = document.getElementById("emergencyPreview");
       const emBtn     = document.getElementById("emergencyBtn");
@@ -893,7 +988,7 @@
     }
   }
 
-  // ── Live Input Previews ──
+  //  Live Input Previews 
   document.getElementById("usdIn").addEventListener("input", () => {
     const plsAmt = parseFloat(document.getElementById("usdIn").value) || 0;
     const el = document.getElementById("plsOut");
@@ -931,7 +1026,7 @@
       const newRatioBps = newDebt > 0n ? (info.collateralValueUSD * 10000n) / newDebt : 0n;
       const newRatioPct = Number(newRatioBps) / 100;
       const col = newRatioPct < 150 ? "#ef4444" : newRatioPct < 170 ? "#fbbf24" : "#10b981";
-      el.innerHTML = `<span style="color:${col}">New ratio ≈ ${newRatioPct.toFixed(1)}% ${newRatioPct < 150 ? "⚠️ UNSAFE" : "✅"}</span>`;
+      el.innerHTML = `<span style="color:${col}">New ratio ≈ ${newRatioPct.toFixed(1)}% ${newRatioPct < 150 ? " UNSAFE" : ""}</span>`;
     } catch { el.textContent = ""; }
   });
 
@@ -944,7 +1039,7 @@
       const info = await vault.vaultInfo(account);
       const repayWei = ethers.parseUnits(val.toString(), 18);
       if (repayWei > info.debt) {
-        el.innerHTML = `<span style="color:#fbbf24">⚠️ Exceeds debt of ${Number(ethers.formatEther(info.debt)).toFixed(4)} SunPLS</span>`;
+        el.innerHTML = `<span style="color:#fbbf24"> Exceeds debt of ${Number(ethers.formatEther(info.debt)).toFixed(4)} SunPLS</span>`;
       } else {
         const remaining = info.debt - repayWei;
         el.textContent = `Remaining debt: ${Number(ethers.formatEther(remaining)).toFixed(4)} SunPLS`;
@@ -953,7 +1048,7 @@
     } catch { el.textContent = ""; }
   });
 
-  // ── Transaction Wrapper ──
+  //  Transaction Wrapper 
   async function withLoading(btn, fn) {
     const orig = btn.textContent;
     btn.disabled = true;
@@ -973,7 +1068,7 @@
     }
   }
 
-  // ── Button Handlers ──
+  //  Button Handlers 
 
   document.getElementById("oneClickBtn").onclick = () =>
     withLoading(document.getElementById("oneClickBtn"), async () => {
@@ -1075,11 +1170,11 @@
       const ratioPct = Number(info.ratio);
       const el = document.getElementById("riskText");
       if (info.liquidatable) {
-        el.innerHTML = `<span style="color:#ef4444">⚠️ LIQUIDATABLE NOW — ratio ${ratioPct.toFixed(1)}% — act immediately!</span>`;
+        el.innerHTML = `<span style="color:#ef4444"> LIQUIDATABLE NOW — ratio ${ratioPct.toFixed(1)}% — act immediately!</span>`;
       } else if (ratioPct < 170) {
-        el.innerHTML = `<span style="color:#fbbf24">⚠️ At risk — ratio ${ratioPct.toFixed(1)}% — consider adding collateral</span>`;
+        el.innerHTML = `<span style="color:#fbbf24"> At risk — ratio ${ratioPct.toFixed(1)}% — consider adding collateral</span>`;
       } else {
-        el.innerHTML = `<span style="color:#10b981">✅ Safe — ratio ${ratioPct.toFixed(1)}%</span>`;
+        el.innerHTML = `<span style="color:#10b981"> Safe — ratio ${ratioPct.toFixed(1)}%</span>`;
       }
     });
 
@@ -1119,21 +1214,21 @@
 
   walletBtn.onclick = connectWallet;
 
-  // ── How To Modal ──
+  //  How To Modal 
   const howModal = document.createElement("div");
   howModal.className = "modal";
   howModal.innerHTML = `
     <div class="modal-content">
       <span class="close">×</span>
-      <h3>🚀 SunPLS Vault Guide</h3>
+      <h3> SunPLS Vault Guide</h3>
 
-      <h4>🟢 Getting Started</h4>
+      <h4> Getting Started</h4>
       <ol>
         <li><strong>Connect Wallet</strong> (top right). Switches to PulseChain automatically.</li>
         <li><strong>Check price</strong> at the top — live from on-chain TWAP oracle.</li>
       </ol>
 
-      <h4>💰 Easiest Method (Recommended)</h4>
+      <h4> Easiest Method (Recommended)</h4>
       <p><strong>1-Click Auto Mint (155%)</strong></p>
       <ul>
         <li>Enter PLS amount to deposit</li>
@@ -1141,7 +1236,7 @@
         <li>Opens vault at 155% — safe buffer above 150% minimum</li>
       </ul>
 
-      <h4>⚙️ Manual Controls</h4>
+      <h4> Manual Controls</h4>
       <ul>
         <li><strong>Deposit PLS:</strong> Lock collateral (5-min cooldown starts)</li>
         <li><strong>Mint SunPLS:</strong> Create stable tokens (150% min enforced)</li>
@@ -1149,14 +1244,14 @@
         <li><strong>Withdraw PLS:</strong> Ratio must stay above 150%</li>
       </ul>
 
-      <h4>🎯 Vault Health</h4>
+      <h4> Vault Health</h4>
       <ul style="line-height:1.7">
-        <li>🟢 <strong>150%+:</strong> Safe zone</li>
-        <li>🟡 <strong>130–150%:</strong> Warning — add collateral</li>
-        <li>🔴 <strong>Below 110%:</strong> Liquidatable</li>
+        <li> <strong>150%+:</strong> Safe zone</li>
+        <li> <strong>130–150%:</strong> Warning — add collateral</li>
+        <li> <strong>Below 110%:</strong> Liquidatable</li>
       </ul>
 
-      <h4>🔄 Redemption System</h4>
+      <h4> Redemption System</h4>
       <ul>
         <li>SunPLS can be redeemed for PLS from any eligible vault</li>
         <li>Use the <strong>Vault Dashboard</strong> to find eligible vaults automatically — no address copy-paste needed</li>
@@ -1165,7 +1260,7 @@
         <li>Spread = (P - R) / R, where both P and R are measured in WPLS per SunPLS</li>
       </ul>
 
-      <h4>⚙️ Controller / Rate Engine</h4>
+      <h4> Controller / Rate Engine</h4>
       <ul>
         <li>Controller adjusts the stability fee (interest rate) each epoch based on oracle spread</li>
         <li>When SunPLS trades above R (positive spread), rate increases</li>
@@ -1174,14 +1269,14 @@
         <li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
       </ul>
 
-      <h4>🛡️ Safety Protections</h4>
+      <h4> Safety Protections</h4>
       <ul>
-        <li>⏰ 5-minute cooldown after deposits</li>
-        <li>🛟 30-day emergency unlock with zero debt</li>
+        <li> 5-minute cooldown after deposits</li>
+        <li> 30-day emergency unlock with zero debt</li>
         <li>Contract blocks actions that drop you below 150%</li>
       </ul>
 
-      <h4>❓ Common Questions</h4>
+      <h4> Common Questions</h4>
       <ul>
         <li><strong>Fees?</strong> Dynamic stability rate set by the Controller (can be positive or negative)</li>
         <li><strong>Upgradeable?</strong> No. Immutable contracts.</li>
@@ -1195,7 +1290,7 @@
     if (e.target.className === "modal" || e.target.className === "close") howModal.style.display = "none";
   };
 
-  // ── Price Chart ──
+  //  Price Chart 
   // Stores {time, p, r} datapoints. Built from:
   //   1. PriceUpdated + PublicRefresh oracle events (historical)
   //   2. Live polling every 60s (extends forward in real time)
@@ -1463,7 +1558,7 @@
 
   window.addEventListener("resize", drawChart);
 
-  // ── Nebula Background ──
+  //  Nebula Background 
   const nebula = document.getElementById("nebula");
   let t = 0, mx = 0, my = 0, tx2 = 0, ty2 = 0;
   function animate() {
