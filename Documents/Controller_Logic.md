@@ -3,7 +3,7 @@
 
 This document compares the **SunPLS Controller (production implementation)** with the **ProjectUSD Controller SPEC v1 (design specification)**.
 
-Both controllers share the same economic foundation: a **feedback control loop** that adjusts system rates based on the deviation between market price **P** and internal equilibrium price **R**.
+Both controllers share the same economic foundation: a **feedback control loop** that adjusts system rates based on the deviation between market price **P** and internal equilibrium value **R**.
 
 However, the SunPLS controller introduces additional safety mechanisms and operational hardening that extend the original design into a more resilient production system.
 
@@ -23,7 +23,7 @@ Where:
 | Variable | Meaning |
 |--------|--------|
 | P | Market price |
-| R | System equilibrium price |
+| R | System equilibrium value |
 | ε | Deviation between market and equilibrium |
 | r | System interest rate |
 | K | Proportional gain |
@@ -119,13 +119,13 @@ The ProjectUSD controller does not define a similar automatic emergency mechanis
 
 # 5. Controlled R Adjustment
 
-SunPLS constrains how quickly the equilibrium price can move:
+SunPLS constrains how quickly the equilibrium value can move:
 
 | Mechanism | SunPLS | ProjectUSD |
 |-----------|--------|-----------|
 | R update requires fresh oracle | ✓ | not specified |
 | Maximum R change per epoch | ✓ | not defined |
-| R floor enforced | ✓ | not specified |
+| R minimum movement bound enforced | ✓ | not specified |
 
 These protections prevent rapid shifts that could destabilize the system.
 
