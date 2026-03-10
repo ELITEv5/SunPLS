@@ -4,7 +4,7 @@ SunPLS implements a deterministic **algorithmic monetary policy** designed to st
 
 Instead of relying on discretionary decisions or governance votes, SunPLS uses a **feedback control system** implemented on-chain.
 
-This design is conceptually inspired by the **ProjectUSD Controller specification**, which describes a feedback-driven monetary system where interest rates adjust based on deviations between market price and equilibrium price.
+This design is conceptually inspired by the **ProjectUSD Controller specification**, which describes a feedback-driven monetary system where interest rates adjust based on deviations between market price and equilibrium value.
 
 SunPLS adopts this core concept while simplifying the overall architecture.
 
@@ -17,7 +17,7 @@ The SunPLS monetary policy system operates using four key variables.
 | Variable | Meaning |
 |--------|--------|
 | `P` | Observed market price of SunPLS |
-| `R` | Internal equilibrium price |
+| `R` | Internal equilibrium value |
 | `ε` | Price deviation (`P − R`) |
 | `r` | System borrowing rate |
 
@@ -59,7 +59,7 @@ P > R
 
 Meaning:
 
-SunPLS is trading above the equilibrium price.
+SunPLS is trading above the equilibrium value.
 
 Controller response:
 
@@ -84,7 +84,7 @@ P < R
 
 Meaning:
 
-SunPLS is trading below the equilibrium price.
+SunPLS is trading below the equilibrium value.
 
 Controller response:
 
@@ -137,9 +137,9 @@ This ensures that monetary policy evolves smoothly.
 
 ---
 
-# Equilibrium Price Adjustment
+# Equilibrium Value Adjustment
 
-The equilibrium price `R` is allowed to adjust slowly toward the observed market price.
+The equilibrium value `R` is allowed to adjust slowly toward the observed market price.
 
 ```
 R_next = R + α(P − R)
@@ -151,7 +151,7 @@ Where:
 |-----------|--------|
 | `α` | damping factor |
 
-This allows the equilibrium price to adapt gradually while avoiding sudden shifts.
+This allows the equilibrium value to adapt gradually while avoiding sudden shifts.
 
 Additional safety:
 
@@ -234,7 +234,7 @@ Epoch sequence:
 4. compute rate change `Δr`  
 5. apply rate limiter  
 6. update borrowing rate `r`  
-7. adjust equilibrium price `R` (if fresh price available)  
+7. adjust equilibrium value `R` (if fresh price available)  
 8. emit telemetry events  
 
 ---
@@ -251,7 +251,7 @@ The controller records operational statistics to monitor system behavior.
 | `frozenEpochs` | detects oracle outages |
 | `emergencyEpochs` | records stress events |
 
-These metrics allow public monitoring of the protocol’s health.
+These metrics allow public monitoring of the protocol's health.
 
 ---
 
@@ -263,7 +263,7 @@ The goal of the SunPLS monetary policy is to ensure:
 P → R
 ```
 
-Over time, the market price should converge toward the equilibrium price.
+Over time, the market price should converge toward the equilibrium value.
 
 This convergence occurs through:
 
@@ -315,7 +315,7 @@ Therefore:
 - PLS volatility still affects collateral values
 - extreme market conditions may temporarily widen price deviations
 
-However, the system’s feedback loop attempts to restore equilibrium over time.
+However, the system's feedback loop attempts to restore equilibrium over time.
 
 ---
 
