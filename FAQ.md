@@ -85,23 +85,23 @@ This keeps the system solvent.
 
 ### 4. Redemptions
 
-SunPLS can always be redeemed for PLS at the system equilibrium price.
+SunPLS can be redeemed for PLS at the current value of R.
 
-If the market price drops below this value, traders can buy SunPLS cheaply and redeem it for collateral.
+If the market price drops below R, traders can buy SunPLS and redeem it for collateral at R's current value.
 
-This creates a natural price floor.
+This creates arbitrage pressure that converges market price toward R. R itself is a derived system state, not a guaranteed bound — it moves as the controller responds to sustained deviation.
 
 ---
 
 # What is the Controller?
 
-The Controller is the protocol’s monetary policy engine.
+The Controller is the protocol's monetary policy engine.
 
 It compares:
 
 ```
 P = market price
-R = equilibrium price
+R = internal equilibrium value
 ```
 
 Then adjusts the borrowing rate `r`.
@@ -124,14 +124,14 @@ This creates a feedback loop that pushes market price toward equilibrium.
 
 # What is the equilibrium price R?
 
-`R` is the internal reference price used by the system.
+`R` is the internal equilibrium value derived from system state.
 
 It determines:
 
 - redemption value
 - monetary policy calculations
 
-The equilibrium price can move slowly over time as the system adapts to market conditions.
+R can move slowly over time as the controller responds to sustained market deviation.
 
 ---
 
@@ -264,7 +264,7 @@ All key system variables are publicly visible on-chain.
 
 These include:
 
-- equilibrium price `R`
+- equilibrium value `R`
 - borrowing rate `r`
 - vault collateral ratios
 - oracle price data
@@ -285,4 +285,4 @@ SunPLS is an experimental decentralized monetary protocol that combines:
 
 to explore the possibility of a self-stabilizing digital asset.
 
-The protocol’s design draws conceptual inspiration from the **ProjectUSD research framework**, while implementing a simplified architecture focused on autonomy and transparency.
+The protocol's design draws conceptual inspiration from the **ProjectUSD research framework**, while implementing a simplified architecture focused on autonomy and transparency.
