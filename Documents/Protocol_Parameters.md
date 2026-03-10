@@ -58,7 +58,7 @@ ALPHA = 5e15
 
 Meaning:
 
-Rate at which the equilibrium price `R` moves toward the observed market price.
+Rate at which the equilibrium value `R` moves toward the observed market price.
 
 Equation:
 
@@ -66,7 +66,7 @@ Equation:
 R_next = R + α(P − R)
 ```
 
-This prevents sudden shifts in the equilibrium price and smooths long-term adjustments.
+This prevents sudden shifts in the equilibrium value and smooths long-term adjustments.
 
 ---
 
@@ -203,9 +203,9 @@ Epoch-based updates prevent excessive policy reactions.
 
 ---
 
-# Equilibrium Price Constraints
+# Equilibrium Value Constraints
 
-The equilibrium price `R` defines the internal system exchange rate between SunPLS and PLS.
+The equilibrium value `R` defines the internal system exchange rate between SunPLS and PLS.
 
 ---
 
@@ -217,7 +217,7 @@ R_FLOOR = 1e18
 
 Meaning:
 
-Minimum equilibrium price allowed by the system.
+Minimum value R is permitted to reach.
 
 This prevents division-by-zero errors and ensures redemption logic remains safe.
 
@@ -393,7 +393,7 @@ This transparency ensures the protocol's economic rules are publicly verifiable.
 | MIN_RATE | minimum borrowing rate |
 | MAX_RATE | maximum borrowing rate |
 | EPOCH_DURATION | policy update interval |
-| R_FLOOR | minimum equilibrium price |
+| R_FLOOR | minimum bound on R |
 | MAX_R_MOVE_BPS | max equilibrium adjustment |
 | MAX_P_AGE | oracle freshness threshold |
 | EMERGENCY_HEALTH_THRESHOLD | system stress protection |
