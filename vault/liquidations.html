@@ -190,6 +190,7 @@
           <li><span class="highlight">Process:</span> Approve SunPLS → liquidate vault → receive PLS reward</li>
           <li><span class="highlight">Interest Buffer:</span> Dashboard adds 1% buffer to handle debt growth during the transaction, capped at total vault debt</li>
           <li><span class="highlight">🔄 Redemptions live here:</span> Use the <strong>Redeemable</strong> tab below to find eligible vaults and redeem SunPLS for PLS — no need to copy-paste addresses manually</li>
+          <li><span class="highlight">Redemption Eligibility (v1.4):</span> Only vaults at or below 130% CR are eligible — vaults above 130% are immune</li>
           <li><span class="highlight">Redemption Rate:</span> R = controller's redemption value in WPLS per SunPLS — burn N SunPLS, receive N × R / 1e18 PLS</li>
           <li><span class="highlight">Redemption Fee:</span> 0.5% fee stays with the vault owner as compensation</li>
           <li><span class="highlight">Anti-Griefing Gap:</span> Vault cannot be liquidated within 5 minutes of being redeemed against</li>
@@ -230,25 +231,29 @@
 
   <script>
   // ═══════════════════════════════════════════════════════════════════
-  // SUNPLS LIQUIDATION DASHBOARD
+  // SUNPLS VAULT DASHBOARD v1.4
   //
-  // PRICE DIRECTION (oracle v1.2, vault v1.3):
+  // Vault enumeration: uses getVaultCount() + getVaultOwner(i) from
+  // the v1.4 registry instead of event-log scanning. Faster and more
+  // reliable — no RPC block range limits, no missed vaults.
+  //
+  // Falls back to event-log scanning if registry returns 0 vaults
+  // (e.g. connected to a pre-v1.4 contract by mistake).
+  //
+  // PRICE DIRECTION (oracle v1.2, vault v1.4):
   //   oracle price = WPLS per SunPLS (1e18 scale)
   //   e.g. 117378e18 = 1 SunPLS costs 117,378 PLS
-  //
-  // Key conversions:
-  //   PLS value of N SunPLS  = N * price / 1e18
-  //   SunPLS value of N PLS  = N * 1e18 / price
-  //
-  // Liquidation reward is paid in PLS.
-  // Profit estimate = (rewardPLS - gasCostPLS) / price = SunPLS units
   // ═══════════════════════════════════════════════════════════════════
 
   const ethers = window.ethers;
 
-  const VAULT_ADDR  = "0x489C6999C39b2B34D1976A6daAc7E989F89679cE";
-  const TOKEN_ADDR  = "0x16cD95c278a7efbDA9ed6A17f9AcFcf1F6494D3F";
-  const ORACLE_ADDR = "0x7C853720c2D68Ba69FCcE08AC59E888E60Cb2Ea7";
+  //  Contract Addresses — SunPLS v1.4
+  const VAULT_ADDR  = "0x6521899F840847de88E87A121447FfB7b5aF9aF0";
+  const TOKEN_ADDR  = "0x04b37fa64a8d73a37D636608e5F6F8E5ce1541Aa";
+  const ORACLE_ADDR = "0xc8B4d7d885D41826CB46376676638449332aeA87";
+
+  // v1.4 deployment block — used by event-log fallback only
+  const DEPLOY_BLOCK = 26000091;
 
   let provider, signer, vault, token, oracle, account, price = 0n;
   let currentTab = 'liquidatable';
@@ -299,8 +304,43 @@
     } catch { price = 0n; }
   }
 
-  // ── Chunked vault owner scan — avoids RPC block range limits ──
+  // ── v1.4 primary: registry enumeration via getVaultCount / getVaultOwner ──
+  // Falls back to event-log scan if registry is empty (shouldn't happen post-deploy).
   async function getAllVaultOwners() {
+    const progressEl = document.getElementById("scanProgress");
+
+    // Try registry first
+    try {
+      const count = Number(await vault.getVaultCount());
+      if (count > 0) {
+        if (progressEl) progressEl.textContent = `Loading ${count} vaults from registry...`;
+        const owners = [];
+        const BATCH = 200;
+        for (let i = 0; i < count; i += BATCH) {
+          const end = Math.min(i + BATCH, count);
+          const chunk = await Promise.all(
+            Array.from({ length: end - i }, (_, k) => vault.getVaultOwner(i + k))
+          );
+          owners.push(...chunk);
+          if (progressEl) {
+            const pct = Math.round((owners.length / count) * 100);
+            progressEl.textContent = `Loading vault registry... ${pct}% (${owners.length} / ${count})`;
+          }
+        }
+        // Deduplicate (registry is append-only but just in case)
+        return [...new Set(owners)];
+      }
+    } catch (e) {
+      console.warn("Registry enumeration failed, falling back to event scan:", e.message);
+    }
+
+    // Fallback: event-log scan (pre-v1.4 or registry error)
+    if (progressEl) progressEl.textContent = "Registry empty — falling back to event scan...";
+    return await getAllVaultOwnersFromEvents();
+  }
+
+  // ── Event-log fallback (chunked, original approach) ──
+  async function getAllVaultOwnersFromEvents() {
     const CHUNK  = 10000;
     const owners = new Set();
     let latest;
@@ -312,13 +352,12 @@
       return [];
     }
 
-    const DEPLOY_BLOCK = 25968794; // SunPLS vault v1.3 deployment block
-    const totalChunks = Math.ceil((latest - DEPLOY_BLOCK + 1) / CHUNK);
+    const fromBlock = DEPLOY_BLOCK > 0 ? DEPLOY_BLOCK : Math.max(0, latest - 500000);
+    const totalChunks = Math.ceil((latest - fromBlock + 1) / CHUNK);
     let chunksScanned = 0;
-
     const progressEl = document.getElementById("scanProgress");
 
-    for (let from = DEPLOY_BLOCK; from <= latest; from += CHUNK) {
+    for (let from = fromBlock; from <= latest; from += CHUNK) {
       const to = Math.min(from + CHUNK - 1, latest);
       try {
         const [dep, mint] = await Promise.all([
@@ -353,8 +392,8 @@
 
     results.innerHTML = `
       <div class="loading" id="scanProgress">
-        Scanning blocks... 0%
-        <div style="font-size:0.8em;margin-top:10px;color:var(--muted)">Chunked scan — 10k blocks at a time</div>
+        Loading vault registry...
+        <div style="font-size:0.8em;margin-top:10px;color:var(--muted)">v1.4 registry enumeration</div>
       </div>
     `;
 
@@ -379,11 +418,10 @@
       const allInfos = [];
       for (let i = 0; i < owners.length; i += BATCH) {
         const chunk   = owners.slice(i, i + BATCH);
-        const results = await Promise.allSettled(chunk.map(o => vault.vaultInfo(o)));
-        results.forEach((r, idx) => {
+        const settled = await Promise.allSettled(chunk.map(o => vault.vaultInfo(o)));
+        settled.forEach((r, idx) => {
           allInfos.push({ owner: chunk[idx], result: r });
         });
-        // Update progress
         const progressEl = document.getElementById("scanProgress");
         if (progressEl) {
           const pct = Math.round(((i + chunk.length) / owners.length) * 100);
@@ -391,7 +429,6 @@
         }
       }
 
-      // Now process results and fetch liquidationInfo for underwater vaults
       // Collect liquidatable owners for a second batch pass
       const pendingLiqInfo = [];
 
@@ -450,8 +487,8 @@
       // Batch liquidationInfo calls for underwater vaults
       for (let i = 0; i < pendingLiqInfo.length; i += BATCH) {
         const chunk   = pendingLiqInfo.slice(i, i + BATCH);
-        const results = await Promise.allSettled(chunk.map(vd => vault.liquidationInfo(vd.owner)));
-        results.forEach((r, idx) => {
+        const settled = await Promise.allSettled(chunk.map(vd => vault.liquidationInfo(vd.owner)));
+        settled.forEach((r, idx) => {
           const vd = chunk[idx];
           if (r.status === 'fulfilled') {
             vd.minRepayWei = r.value.minRepay;
@@ -513,7 +550,7 @@
     if (data.length === 0) {
       const msgs = {
         liquidatable: "✅ No liquidation opportunities. All vaults above 110%!",
-        redeemable:   "ℹ️ No vaults currently eligible for redemption. All vaults are above 150% ratio.",
+        redeemable:   "ℹ️ No vaults currently eligible for redemption. All vaults are above 130% ratio.",
         risky:        "✅ No at-risk vaults. All either liquidatable or healthy!",
         healthy:      "⚠️ No healthy vaults found."
       };
@@ -587,7 +624,7 @@
         <div class="stats-header teal">
           <h2 style="color:#14b8a6">🔄 REDEEM SUNPLS FOR PLS</h2>
           <div class="count">${data.length}</div>
-          <div style="color:var(--muted);margin-top:8px">Vaults eligible for redemption at R rate — pick one below</div>
+          <div style="color:var(--muted);margin-top:8px">Vaults at or below 130% CR — eligible for redemption at R rate</div>
           <div style="color:#5eead4;font-size:0.82em;margin-top:6px">Enter amount → Preview → Redeem. No address copy-paste needed.</div>
         </div>
       `;
@@ -601,7 +638,7 @@
               </div>
               <div class="info-row">
                 <span class="label">Health Ratio:</span>
-                <span class="value safe">${v.ratio.toFixed(1)}%</span>
+                <span class="value warn">${v.ratio.toFixed(1)}%</span>
               </div>
               <div class="info-row">
                 <span class="label">Debt:</span>
@@ -688,7 +725,7 @@
         <div class="stats-header safe">
           <h2 style="color:#10b981">✅ HEALTHY VAULTS</h2>
           <div class="count">${data.length}</div>
-          <div style="color:var(--muted);margin-top:8px">Above 150% health ratio</div>
+          <div style="color:var(--muted);margin-top:8px">Above 150% health ratio — immune to redemption</div>
         </div>
       `;
       for (const v of data) {
