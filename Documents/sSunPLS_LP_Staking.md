@@ -1,9 +1,9 @@
 # sSunPLS — Auto-Compounding LP Vault
 
-**Contract:** `0x3d2feBC4e6CFd3fe4Ae085B00434fb76eF54C0E9`
-**Pair:** SunPLS / WPLS
-**Network:** PulseChain
-**Version:** sSunPLS v1.0
+**Contract:** `0x3d2feBC4e6CFd3fe4Ae085B00434fb76eF54C0E9`  
+**Pair:** SunPLS / WPLS  
+**Network:** PulseChain  
+**Version:** sSunPLS v1.0  
 **Dev:** ELITE TEAM6
 
 ---
@@ -106,7 +106,7 @@ Both sides of the pair are volatile assets. Neither is treated as a fixed $1 sta
 
 ## Relationship to the SunPLS Ecosystem
 
-sSunPLS is a companion contract to the SunPLS CDP system. SunPLS is a collateral-backed stablecoin minted against PLS on PulseChain. The SunPLS/WPLS liquidity pool is the primary venue for SunPLS price discovery and the source of the oracle price feeds that govern the CDP system's collateralization and liquidation logic.
+sSunPLS is a companion contract to the SunPLS CDP system. SunPLS is a collateral-backed autonomous monetary asset minted against PLS on PulseChain. The SunPLS/WPLS liquidity pool is the primary venue for SunPLS price discovery and the source of the oracle price feeds that govern the CDP system's collateralization and liquidation logic.
 
 Deep, stable liquidity in the SunPLS/WPLS pool directly strengthens the CDP system:
 
