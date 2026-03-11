@@ -312,12 +312,13 @@
       return [];
     }
 
-    const totalChunks = Math.ceil((latest + 1) / CHUNK);
+    const DEPLOY_BLOCK = 25968794; // SunPLS vault v1.3 deployment block
+    const totalChunks = Math.ceil((latest - DEPLOY_BLOCK + 1) / CHUNK);
     let chunksScanned = 0;
 
     const progressEl = document.getElementById("scanProgress");
 
-    for (let from = 0; from <= latest; from += CHUNK) {
+    for (let from = DEPLOY_BLOCK; from <= latest; from += CHUNK) {
       const to = Math.min(from + CHUNK - 1, latest);
       try {
         const [dep, mint] = await Promise.all([
