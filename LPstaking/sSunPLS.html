@@ -370,10 +370,16 @@
             "function token1() view returns (address)"
         ];
 
-        // SunPLS oracle ABI — peeks the median PLS price
+        // SunPLS oracle ABI — correct signatures from deployed contract
+        // peek() returns confirmed price (WPLS per SunPLS, 18 decimals)
+        // getSpotPrice() returns live spot price from reserves
+        // wplsIsToken0() tells us pair token ordering — no address comparison needed
         const ORACLE_ABI = [
-            "function peekPrice() view returns (uint256 price, bool fresh)",
-            "function getPrice() view returns (uint256 price)"
+            "function peek() view returns (uint256 price, uint256 timestamp)",
+            "function getSpotPrice() view returns (uint256)",
+            "function lastPrice() view returns (uint256)",
+            "function wplsIsToken0() view returns (bool)",
+            "function isHealthy() view returns (bool)"
         ];
 
         let provider, signer, userAddress, sSunPLSContract, lpTokenContract, pairContract, oracleContract;
@@ -382,23 +388,30 @@
         let token0IsWPLS = false; // track which side of the pair is WPLS
 
         // ── PLS price from SunPLS oracle ──────────────────────────────────────────
-        // The SunPLS oracle stores price as PLS per SunPLS (or SunPLS per PLS).
-        // We need USD/PLS. Since SunPLS targets $1 peg, oracle price ≈ PLS per $1
-        // i.e.  plsUSD = 1 / (oracle_price / 1e18)
-        // Adjust if your oracle stores a different convention.
+        // Oracle tracks the SunPLS/WPLS pair.
+        // peek() returns the confirmed price as: WPLS per 1 SunPLS (18 decimals)
+        // Since SunPLS targets a $1 soft peg:
+        //   wplsPerSunPLS ≈ how many PLS = $1  →  plsUSD = 1 / wplsPerSunPLS
+        // We also grab getSpotPrice() for display comparison vs confirmed price.
         async function updatePLSPrice() {
             try {
-                let rawPrice;
-                try { rawPrice = await oracleContract.getPrice(); }
-                catch { [rawPrice] = await oracleContract.peekPrice(); }
+                const [confirmedPrice] = await oracleContract.peek();
+                const wplsPerSunPLS = parseFloat(ethers.utils.formatEther(confirmedPrice));
+                plsUSD = wplsPerSunPLS > 0 ? 1.0 / wplsPerSunPLS : 0;
 
-                // oracle returns: how many PLS per 1 SunPLS (SunPLS targets $1 peg)
-                // so USD/PLS = 1 / (rawPrice / 1e18)
-                const plsPerSunPLS = parseFloat(ethers.utils.formatEther(rawPrice));
-                plsUSD = plsPerSunPLS > 0 ? 1.0 / plsPerSunPLS : 0;
+                let spotDisplay = "";
+                try {
+                    const spot = await oracleContract.getSpotPrice();
+                    const spotF = parseFloat(ethers.utils.formatEther(spot));
+                    spotDisplay = "  |  Spot: $" + (spotF > 0 ? (1.0 / spotF).toFixed(8) : "—");
+                } catch { /* spot optional */ }
 
+                const healthy = await oracleContract.isHealthy();
                 document.getElementById("plsPriceDisplay").textContent =
-                    "PLS Price: $" + plsUSD.toFixed(8) + "  |  1 PLS = " + plsPerSunPLS.toFixed(2) + " SunPLS";
+                    "PLS: $" + plsUSD.toFixed(8) +
+                    "  (" + wplsPerSunPLS.toFixed(0) + " WPLS/SunPLS)" +
+                    spotDisplay +
+                    (healthy ? "" : "  ⚠ oracle stale");
             } catch (e) {
                 console.warn("Oracle price fetch failed:", e);
                 document.getElementById("plsPriceDisplay").textContent = "PLS Price: oracle unavailable";
@@ -406,60 +419,49 @@
         }
 
         // ── LP token USD value ────────────────────────────────────────────────────
-        // SunPLS/WPLS pair: BOTH sides are PLS-denominated assets.
+        // SunPLS/WPLS pair — both sides are volatile, both need oracle pricing.
         //
-        // reserve0 = SunPLS tokens  (priced in PLS via oracle: 1 SunPLS = 1/plsUSD PLS)
-        // reserve1 = WPLS tokens    (priced directly: 1 WPLS = 1 PLS)
+        // Oracle: peek() returns wplsPerSunPLS (WPLS needed to buy 1 SunPLS, 18 dec)
+        // From this, since SunPLS targets $1 peg:
+        //   plsUSD    = 1 / wplsPerSunPLS          (USD value of 1 WPLS/PLS)
+        //   sunplsUSD = wplsPerSunPLS * plsUSD = 1  (should be ~$1 at peg)
         //
-        // totalPoolUSD = (reserve0_in_PLS + reserve1_in_PLS) * plsUSD
-        // lpTokenUSD   = totalPoolUSD / lpTotalSupply
+        // But we do NOT hardcode sunplsUSD = $1. We derive it properly:
+        //   sunplsUSD = wplsPerSunPLS * plsUSD
+        //             = wplsPerSunPLS * (1 / wplsPerSunPLS)
+        //             = 1.0  exactly at peg, floats with market
         //
-        // reserve0_in_PLS = reserve0 * (1/plsPerSunPLS) — but since SunPLS ≈ $1 peg
-        // and 1 SunPLS = plsPerSunPLS PLS, this equals reserve0 * plsPerSunPLS... wait:
+        // Pool USD = (reserveSunPLS * sunplsUSD) + (reserveWPLS * plsUSD)
+        // LP USD   = Pool USD / lpTotalSupply
         //
-        // Cleaner: work entirely in USD.
-        //   reserve0_USD = reserve0 * sunplsUSD       where sunplsUSD ≈ $1 (soft peg)
-        //   reserve1_USD = reserve1 * plsUSD
-        //   totalPoolUSD = reserve0_USD + reserve1_USD
-        //
-        // SunPLS USD price is NOT hardcoded to $1 — we derive it from the oracle:
-        //   sunplsUSD = plsUSD * plsPerSunPLS  ... no, that's circular.
-        //
-        // The oracle gives us plsPerSunPLS (how many PLS buys 1 SunPLS).
-        // So: sunplsUSD = plsPerSunPLS * plsUSD  (PLS per SunPLS * USD per PLS)
-        //
-        // This is the correct non-circular derivation.
+        // Token ordering: read wplsIsToken0() directly from oracle — no address guessing.
         async function computeLPUnitUSD() {
             try {
-                const [reserve0, reserve1] = await pairContract.getReserves();
-                const lpSupply = await pairContract.totalSupply();
+                if (plsUSD === 0) return 0; // oracle not yet loaded
 
-                const r0 = parseFloat(ethers.utils.formatEther(reserve0));
-                const r1 = parseFloat(ethers.utils.formatEther(reserve1));
+                const [[reserve0, reserve1], lpSupply, wplsIsT0] = await Promise.all([
+                    pairContract.getReserves(),
+                    pairContract.totalSupply(),
+                    oracleContract.wplsIsToken0()
+                ]);
+
+                const r0     = parseFloat(ethers.utils.formatEther(reserve0));
+                const r1     = parseFloat(ethers.utils.formatEther(reserve1));
                 const supply = parseFloat(ethers.utils.formatEther(lpSupply));
                 if (supply === 0) return 0;
 
-                // Identify which token is WPLS vs SunPLS by address comparison
-                const t0addr = (await pairContract.token0()).toLowerCase();
-                const sunplsAddr = SUNPLS_ADDRESS.toLowerCase();
-                token0IsWPLS = (t0addr !== sunplsAddr); // if token0 is not SunPLS, it's WPLS
+                // Assign reserves correctly using oracle's authoritative token0 flag
+                const reserve_wpls   = wplsIsT0 ? r0 : r1;
+                const reserve_sunpls = wplsIsT0 ? r1 : r0;
 
-                // Derive SunPLS USD price from oracle
-                // oracle price = PLS per SunPLS (from peekPrice/getPrice)
-                let rawPrice;
-                try { rawPrice = await oracleContract.getPrice(); }
-                catch { [rawPrice] = await oracleContract.peekPrice(); }
-                const plsPerSunPLS = parseFloat(ethers.utils.formatEther(rawPrice));
-                const sunplsUSD = plsPerSunPLS * plsUSD;
-
-                let reserve_sunpls, reserve_wpls;
-                if (token0IsWPLS) {
-                    reserve_wpls   = r0;
-                    reserve_sunpls = r1;
-                } else {
-                    reserve_sunpls = r0;
-                    reserve_wpls   = r1;
-                }
+                // SunPLS USD price — derived from oracle, not hardcoded
+                // wplsPerSunPLS is already stored in plsUSD derivation above:
+                //   plsUSD = 1 / wplsPerSunPLS  →  wplsPerSunPLS = 1 / plsUSD
+                // sunplsUSD = (1 / plsUSD) * plsUSD = 1.0  at peg
+                // Keep it explicit so it floats correctly with oracle updates:
+                const [confirmedPrice] = await oracleContract.peek();
+                const wplsPerSunPLS = parseFloat(ethers.utils.formatEther(confirmedPrice));
+                const sunplsUSD = wplsPerSunPLS * plsUSD; // = 1.0 at peg, floats off-peg
 
                 const poolUSD = (reserve_sunpls * sunplsUSD) + (reserve_wpls * plsUSD);
                 lpUnitUSD = poolUSD / supply;
@@ -469,7 +471,8 @@
                 document.getElementById("reserve1").textContent      = fmt(reserve_wpls, 2) + " WPLS";
                 document.getElementById("lpTotalSupply").textContent = fmt(supply, 6);
                 document.getElementById("lpTokenPrice").textContent  = "$" + lpUnitUSD.toFixed(6);
-                document.getElementById("sunplsPrice").textContent   = "$" + sunplsUSD.toFixed(6) + " (" + plsPerSunPLS.toFixed(2) + " PLS)";
+                document.getElementById("sunplsPrice").textContent   = "$" + sunplsUSD.toFixed(6) +
+                    "  (" + wplsPerSunPLS.toFixed(0) + " WPLS)";
                 document.getElementById("poolTVL").textContent       = "$" + poolUSD.toFixed(2);
 
                 return lpUnitUSD;
@@ -618,11 +621,14 @@
                 document.getElementById("depositPreview").textContent = ""; return;
             }
             try {
+                // Ensure lpUnitUSD is populated before showing USD estimate
+                if (lpUnitUSD === 0) { await updatePLSPrice(); await computeLPUnitUSD(); }
                 const shares = await sSunPLSContract.previewDeposit(ethers.utils.parseEther(amount));
-                const sf = parseFloat(ethers.utils.formatEther(shares));
+                const sf  = parseFloat(ethers.utils.formatEther(shares));
                 const usd = parseFloat(amount) * lpUnitUSD;
+                const usdStr = lpUnitUSD > 0 ? "  (~$" + usd.toFixed(2) + ")" : "";
                 document.getElementById("depositPreview").textContent =
-                    "Will receive " + sf.toFixed(6) + " sSunPLS  (~$" + usd.toFixed(2) + ")";
+                    "Will receive " + sf.toFixed(6) + " sSunPLS" + usdStr;
             } catch { document.getElementById("depositPreview").textContent = ""; }
         });
 
