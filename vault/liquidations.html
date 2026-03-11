@@ -367,82 +367,109 @@
       const risky        = [];
       const healthy      = [];
 
-      for (const owner of owners) {
-        try {
-          const info = await vault.vaultInfo(owner);
-          const ratioPct = Number(info.ratio);
-          const debt     = Number(ethers.formatEther(info.debt));
-          if (debt === 0) continue;
+      // Fetch gas price once up front — same for all vaults
+      const feeData    = await provider.getFeeData();
+      const gasEst     = 150000n;
+      const gasCostWei = gasEst * (feeData.gasPrice || 1000000n);
+      const gasCostPLS = Number(ethers.formatEther(gasCostWei));
+      const priceNum   = price > 0n ? Number(ethers.formatEther(price)) : 0;
 
-          // collateralValueUSD from v1.3 vault = collateral * 1e18 / price = SunPLS value
-          const collValSunPLS = Number(ethers.formatEther(info.collateralValueUSD));
+      // Batch vaultInfo calls — 100 parallel at a time to avoid RPC overload
+      const BATCH = 100;
+      const allInfos = [];
+      for (let i = 0; i < owners.length; i += BATCH) {
+        const chunk   = owners.slice(i, i + BATCH);
+        const results = await Promise.allSettled(chunk.map(o => vault.vaultInfo(o)));
+        results.forEach((r, idx) => {
+          allInfos.push({ owner: chunk[idx], result: r });
+        });
+        // Update progress
+        const progressEl = document.getElementById("scanProgress");
+        if (progressEl) {
+          const pct = Math.round(((i + chunk.length) / owners.length) * 100);
+          progressEl.textContent = `Loading vault data... ${pct}% (${i + chunk.length} / ${owners.length})`;
+        }
+      }
 
-          const redemptionRaw = Number(ethers.formatEther(info.redemptionVal));
-          let redemptionDisplay;
-          if (redemptionRaw >= 1_000_000)      redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
-          else if (redemptionRaw >= 1_000)     redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
-          else                                 redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
+      // Now process results and fetch liquidationInfo for underwater vaults
+      // Collect liquidatable owners for a second batch pass
+      const pendingLiqInfo = [];
 
-          const collPLS = Number(ethers.formatEther(info.collateral));
-          let collDisplay;
-          if (collPLS >= 1e9)      collDisplay = (collPLS/1e9).toFixed(2) + "B";
-          else if (collPLS >= 1e6) collDisplay = (collPLS/1e6).toFixed(2) + "M";
-          else if (collPLS >= 1e3) collDisplay = (collPLS/1e3).toFixed(2) + "K";
-          else                     collDisplay = collPLS.toFixed(2);
-
-          const vd = {
-            owner,
-            ratio:             ratioPct,
-            debt,
-            debtWei:           info.debt,
-            collateral:        collPLS,
-            collateralDisplay: collDisplay,
-            collateralSunPLS:  collValSunPLS,
-            mintable:          Number(ethers.formatEther(info.mintable)),
-            redemptionDisplay,
-            redemptionRaw,
-            isLiquidatable:    info.liquidatable,
-            isRedeemable:      info.redeemable,
-            oracleHealthy:     info.oracleHealthy
-          };
-
-          if (vd.isLiquidatable || ratioPct < 110) {
-            try {
-              const liqInfo  = await vault.liquidationInfo(owner);
-              vd.minRepayWei = liqInfo.minRepay;
-              vd.minRepay    = Number(ethers.formatEther(liqInfo.minRepay));
-              vd.reward      = Number(ethers.formatEther(liqInfo.reward));
-              vd.bonusBps    = Number(liqInfo.bonusBps);
-            } catch {
-              vd.minRepayWei = vd.debtWei * 2000n / 10000n;
-              vd.minRepay    = debt * 0.20;
-              vd.reward      = 0;
-              vd.bonusBps    = 0;
-            }
-
-            const gasEst     = 150000n;
-            const feeData    = await provider.getFeeData();
-            const gasCostWei = gasEst * (feeData.gasPrice || 1000000n);
-            const gasCostPLS = Number(ethers.formatEther(gasCostWei));
-            const profitPLS  = vd.reward - gasCostPLS;
-            const priceNum   = price > 0n ? Number(ethers.formatEther(price)) : 0;
-            vd.profitSunPLS = priceNum > 0 ? profitPLS / priceNum : 0;
-            vd.profitPLS    = profitPLS;
-            vd.isProfitable = profitPLS > 0;
-
-            liquidatable.push(vd);
-          } else if (vd.isRedeemable) {
-            redeemable.push(vd);
-          } else if (ratioPct < 150) {
-            risky.push(vd);
-          } else {
-            healthy.push(vd);
-          }
-
-        } catch (e) {
-          console.warn("Vault error", owner, e.message);
+      for (const { owner, result } of allInfos) {
+        if (result.status === 'rejected') {
+          console.warn("vaultInfo failed for", owner, result.reason?.message);
           continue;
         }
+        const info     = result.value;
+        const ratioPct = Number(info.ratio);
+        const debt     = Number(ethers.formatEther(info.debt));
+        if (debt === 0) continue;
+
+        const collValSunPLS = Number(ethers.formatEther(info.collateralValueUSD));
+
+        const redemptionRaw = Number(ethers.formatEther(info.redemptionVal));
+        let redemptionDisplay;
+        if (redemptionRaw >= 1_000_000)      redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
+        else if (redemptionRaw >= 1_000)     redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
+        else                                 redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
+
+        const collPLS = Number(ethers.formatEther(info.collateral));
+        let collDisplay;
+        if (collPLS >= 1e9)      collDisplay = (collPLS/1e9).toFixed(2) + "B";
+        else if (collPLS >= 1e6) collDisplay = (collPLS/1e6).toFixed(2) + "M";
+        else if (collPLS >= 1e3) collDisplay = (collPLS/1e3).toFixed(2) + "K";
+        else                     collDisplay = collPLS.toFixed(2);
+
+        const vd = {
+          owner,
+          ratio:             ratioPct,
+          debt,
+          debtWei:           info.debt,
+          collateral:        collPLS,
+          collateralDisplay: collDisplay,
+          collateralSunPLS:  collValSunPLS,
+          mintable:          Number(ethers.formatEther(info.mintable)),
+          redemptionDisplay,
+          redemptionRaw,
+          isLiquidatable:    info.liquidatable,
+          isRedeemable:      info.redeemable,
+          oracleHealthy:     info.oracleHealthy
+        };
+
+        if (vd.isLiquidatable || ratioPct < 110) {
+          pendingLiqInfo.push(vd);
+        } else if (vd.isRedeemable) {
+          redeemable.push(vd);
+        } else if (ratioPct < 150) {
+          risky.push(vd);
+        } else {
+          healthy.push(vd);
+        }
+      }
+
+      // Batch liquidationInfo calls for underwater vaults
+      for (let i = 0; i < pendingLiqInfo.length; i += BATCH) {
+        const chunk   = pendingLiqInfo.slice(i, i + BATCH);
+        const results = await Promise.allSettled(chunk.map(vd => vault.liquidationInfo(vd.owner)));
+        results.forEach((r, idx) => {
+          const vd = chunk[idx];
+          if (r.status === 'fulfilled') {
+            vd.minRepayWei = r.value.minRepay;
+            vd.minRepay    = Number(ethers.formatEther(r.value.minRepay));
+            vd.reward      = Number(ethers.formatEther(r.value.reward));
+            vd.bonusBps    = Number(r.value.bonusBps);
+          } else {
+            vd.minRepayWei = vd.debtWei * 2000n / 10000n;
+            vd.minRepay    = vd.debt * 0.20;
+            vd.reward      = 0;
+            vd.bonusBps    = 0;
+          }
+          const profitPLS  = vd.reward - gasCostPLS;
+          vd.profitSunPLS  = priceNum > 0 ? profitPLS / priceNum : 0;
+          vd.profitPLS     = profitPLS;
+          vd.isProfitable  = profitPLS > 0;
+          liquidatable.push(vd);
+        });
       }
 
       liquidatable.sort((a,b) => b.profitPLS - a.profitPLS);
