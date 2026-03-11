@@ -4,7 +4,7 @@
 **Pair:** SunPLS / WPLS
 **Network:** PulseChain
 **Version:** sSunPLS v1.0
-**Dev:** ELITE TEAM6 — [sundaitoken.com](https://www.sundaitoken.com)
+**Dev:** ELITE TEAM6
 
 ---
 
