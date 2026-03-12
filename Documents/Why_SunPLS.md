@@ -24,11 +24,11 @@ Redemption Engine
 
 While this design provides strong theoretical guarantees, it also introduces significant complexity:
 
-- multiple contract dependencies  
-- complex accounting systems (StabilityPool distribution)  
-- reward allocation mechanisms  
-- larger attack surfaces  
-- increased gas costs  
+- multiple contract dependencies
+- complex accounting systems (StabilityPool distribution)
+- reward allocation mechanisms
+- larger attack surfaces
+- increased gas costs
 - more difficult verification
 
 SunPLS was created to explore whether **a simpler architecture could preserve the core economic properties while reducing systemic complexity**.
@@ -58,7 +58,7 @@ Instead, the protocol relies on **market incentives and direct liquidation mecha
 The most important element of ProjectUSD is the **controller feedback system**:
 
 ```
-ε = P − R
+ε = |P − R| / R  (normalized deviation)
 Δr = K × ε
 ```
 
@@ -72,11 +72,12 @@ SunPLS preserves this mechanism exactly.
 
 SunPLS extends the original controller design with additional safeguards necessary for production environments:
 
-- oracle degradation modes
-- dynamic controller gain decay
-- emergency vault health protection
-- bounded equilibrium value adjustments
-- system telemetry for monitoring
+- four-mode oracle degradation (A → B → C → D)
+- dynamic controller gain decay (K decays as price age increases)
+- emergency vault health protection (forces MAX_RATE below 120% system health)
+- bounded equilibrium value adjustments (R capped at 10% per epoch)
+- system telemetry for monitoring (five on-chain counters)
+- one-time vault latch (resolves circular deployment without nonce prediction)
 
 These changes transform the controller from a conceptual model into a **robust autonomous control system**.
 
@@ -90,10 +91,10 @@ SunPLS deliberately avoids this model.
 
 Instead, the system is designed so that:
 
-- rules are immutable
+- rules are immutable after deployment
 - policy is deterministic
 - anyone can trigger controller epochs
-- no privileged actors exist
+- no privileged actors exist after vault latch
 
 This design moves the protocol closer to an **algorithmic monetary system rather than a governance-managed platform**.
 
@@ -115,11 +116,11 @@ Each component performs a clear role:
 
 | Component | Function |
 |-----------|----------|
-| Oracle | Provides price signal P |
+| Oracle | Provides price signal P (WPLS per SunPLS) |
 | Controller | Adjusts system rate r based on deviation from R |
 | Vault | Manages collateralized borrowing |
-| Liquidations | Remove unsafe debt positions |
-| Redemptions | Converge market price toward R through arbitrage |
+| Liquidations | Remove unsafe debt positions (CR below 110%) |
+| Redemptions | Converge market price toward R through arbitrage (CR at or below 130%) |
 
 This structure allows the protocol to maintain stability with **fewer moving parts and a smaller attack surface**.
 
