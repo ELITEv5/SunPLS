@@ -31,22 +31,22 @@ Higher values cause the controller to react more aggressively to price movements
 Controller equation:
 
 ```
-Δr = K × (ε / R)
+Δr = K × ε
 ```
 
 Where:
 
 ```
-ε = P − R
+ε = |P − R| / R  (normalized deviation)
 ```
 
 Typical interpretation:
 
 ```
-1% price deviation → ~0.1% rate adjustment
+1% price deviation → ~0.1% rate adjustment per epoch
 ```
 
-This produces a moderate stabilization response.
+This produces a moderate stabilization response. K is immutable after deployment.
 
 ---
 
@@ -58,15 +58,17 @@ ALPHA = 5e15
 
 Meaning:
 
-Rate at which the equilibrium value `R` moves toward the observed market price.
+Rate at which the equilibrium value `R` moves toward the observed market price each epoch.
 
 Equation:
 
 ```
-R_next = R + α(P − R)
+ΔR = ALPHA × (P − R)
 ```
 
-This prevents sudden shifts in the equilibrium value and smooths long-term adjustments.
+Capped at MAX_R_MOVE_BPS (10%) per epoch regardless of ALPHA.
+
+This prevents sudden shifts in the equilibrium value and smooths long-term adjustments. ALPHA is immutable after deployment.
 
 ---
 
@@ -89,7 +91,7 @@ Small price fluctuations within this range are ignored by the controller.
 Condition:
 
 ```
-|P − R| / R ≤ DEADBAND
+ε = |P − R| / R ≤ DEADBAND
 ```
 
 When this condition holds:
@@ -116,7 +118,7 @@ Equivalent to:
 
 Meaning:
 
-Maximum rate change allowed per epoch.
+Maximum rate change allowed per epoch regardless of deviation size.
 
 Limiter rule:
 
@@ -124,7 +126,7 @@ Limiter rule:
 |Δr| ≤ DELTA_R_MAX
 ```
 
-This prevents abrupt monetary policy changes that could destabilize borrowing incentives.
+This prevents abrupt monetary policy changes that could destabilize borrowing incentives. When the limiter fires, `limiterHits` is incremented.
 
 ---
 
@@ -143,14 +145,14 @@ MIN_RATE = -5e16
 Equivalent to:
 
 ```
--5%
+-5% APR
 ```
 
 Meaning:
 
 The lowest possible borrowing rate.
 
-Negative rates may encourage borrowing and increase supply if SunPLS trades below equilibrium.
+Negative rates reduce vault debt over time, incentivizing supply expansion when SunPLS trades persistently below equilibrium. This is the last autonomous recovery tool available when redemption liquidity is exhausted — the controller can push rates negative to encourage new supply without requiring external intervention.
 
 ---
 
@@ -163,14 +165,14 @@ MAX_RATE = 20e16
 Equivalent to:
 
 ```
-20%
+20% APR
 ```
 
 Meaning:
 
 The highest possible borrowing rate.
 
-High rates discourage borrowing and reduce supply expansion.
+High rates discourage borrowing and reduce supply expansion. MAX_RATE is also the forced rate during emergency epochs when system health drops below EMERGENCY_HEALTH_THRESHOLD.
 
 ---
 
@@ -193,19 +195,21 @@ Controller updates occur once every hour.
 Each epoch performs:
 
 ```
-price retrieval
-deviation calculation
-policy update
-rate adjustment
+1. Emergency health check
+2. Oracle price resolution (Modes A → B → C → D)
+3. Deviation calculation
+4. Rate adjustment
+5. R update (Mode A only)
+6. Rate push to vault
 ```
 
-Epoch-based updates prevent excessive policy reactions.
+Epoch execution is permissionless — anyone can call `triggerEpoch()` once the duration has elapsed. Epoch-based updates prevent excessive policy reactions.
 
 ---
 
 # Equilibrium Value Constraints
 
-The equilibrium value `R` defines the internal system exchange rate between SunPLS and PLS.
+The equilibrium value `R` defines the internal system exchange rate between SunPLS and PLS, expressed in WPLS per SunPLS.
 
 ---
 
@@ -219,7 +223,7 @@ Meaning:
 
 Minimum value R is permitted to reach.
 
-This prevents division-by-zero errors and ensures redemption logic remains safe.
+This prevents R from collapsing to zero, which would break redemption arithmetic. R is enforced at or above R_FLOOR after every epoch.
 
 ---
 
@@ -237,15 +241,15 @@ Equivalent to:
 
 Meaning:
 
-Maximum allowed movement of `R` per epoch.
+Maximum allowed movement of `R` per epoch regardless of ALPHA or deviation size.
 
 Rule:
 
 ```
-|ΔR| ≤ 10%
+|ΔR| ≤ R × 10%
 ```
 
-This prevents large equilibrium shifts that could destabilize the system.
+This prevents large equilibrium shifts that could destabilize the system. R only moves during Mode A epochs (fresh oracle price required).
 
 ---
 
@@ -263,21 +267,16 @@ MAX_P_AGE = 24 hours
 
 Meaning:
 
-Maximum acceptable age of a stored price.
+Maximum acceptable age of a stored price before K decays to its minimum.
 
-If the oracle price becomes older than this threshold:
-
-```
-controller gain decays toward zero
-```
-
-Eventually:
+K decay formula:
 
 ```
-controller freezes policy updates
+effectiveK = K × (MAX_P_AGE − age) / MAX_P_AGE
 ```
 
-This prevents decisions based on outdated price data.
+As price age approaches MAX_P_AGE, effectiveK approaches 1 (minimum, not zero).
+Beyond MAX_P_AGE with no oracle recovery, the controller enters Mode D and freezes rate updates while still advancing the epoch.
 
 ---
 
@@ -293,23 +292,149 @@ EMERGENCY_HEALTH_THRESHOLD = 120
 
 Meaning:
 
-System health threshold below which emergency measures activate.
+System collateralization threshold (120% CR) below which emergency measures activate.
 
-If vault health falls below this level:
+If vault system health falls below this level at the start of an epoch:
 
 ```
-controller forces r = MAX_RATE
+r = MAX_RATE (20% APR)
 ```
 
-This encourages rapid deleveraging and risk reduction.
+This check runs before oracle resolution and cannot be bypassed by oracle failure. The epoch still advances normally after the emergency rate is pushed.
+
+---
+
+# Vault Parameters
+
+These parameters are set in the Vault contract and govern CDP behavior.
+
+---
+
+## COLLATERAL_RATIO
+
+```
+COLLATERAL_RATIO = 150
+```
+
+Minimum collateral ratio (150%) required to mint SunPLS or withdraw collateral.
+
+---
+
+## LIQUIDATION_RATIO
+
+```
+LIQUIDATION_RATIO = 110
+```
+
+Collateral ratio (110%) below which a vault becomes liquidatable via Dutch auction.
+
+---
+
+## REDEMPTION_RATIO
+
+```
+REDEMPTION_RATIO = 130
+```
+
+Collateral ratio threshold (130%) at or below which a vault can be redeemed against. Vaults above 130% CR are completely immune to redemption.
+
+---
+
+## AUTOMINT_RATIO
+
+```
+AUTOMINT_RATIO = 155
+```
+
+Collateral ratio used by `depositAndAutoMintPLS()` — mints SunPLS at 155% CR in a single transaction.
+
+---
+
+## REDEMPTION_FEE_BPS
+
+```
+REDEMPTION_FEE_BPS = 50
+```
+
+Equivalent to 0.5%. Fee retained by the vault owner as collateral during a redemption. Does not leave the vault.
+
+---
+
+## REDEMPTION_LIQUIDATION_GAP
+
+```
+REDEMPTION_LIQUIDATION_GAP = 300 seconds
+```
+
+A vault cannot be liquidated within 5 minutes of being redeemed against. Gives vault owners time to respond.
+
+---
+
+## LIQUIDATION_COOLDOWN
+
+```
+LIQUIDATION_COOLDOWN = 600 seconds
+```
+
+Minimum time between successive liquidations of the same vault.
+
+---
+
+## MIN_LIQUIDATION_BPS
+
+```
+MIN_LIQUIDATION_BPS = 2000
+```
+
+Minimum liquidation size is 20% of the vault's outstanding debt.
+
+---
+
+## MIN_BONUS_BPS / MAX_BONUS_BPS
+
+```
+MIN_BONUS_BPS = 200   (2%)
+MAX_BONUS_BPS = 500   (5%)
+AUCTION_TIME  = 3 hours
+```
+
+Dutch auction liquidation bonus grows from 2% to 5% over 3 hours from when the vault first became undercollateralized.
+
+---
+
+## WITHDRAW_COOLDOWN
+
+```
+WITHDRAW_COOLDOWN = 300 seconds
+```
+
+5-minute cooldown after any deposit before collateral can be withdrawn.
+
+---
+
+## MIN_SYSTEM_HEALTH
+
+```
+MIN_SYSTEM_HEALTH = 130
+```
+
+System-wide collateralization floor below which new minting is blocked.
+
+---
+
+## EMERGENCY_UNLOCK_TIME
+
+```
+EMERGENCY_UNLOCK_TIME = 30 days
+```
+
+After 30 days of inactivity with zero debt, a vault owner can withdraw collateral regardless of other conditions.
 
 ---
 
 # Telemetry Counters
 
-The protocol tracks several operational statistics.
-
-These values help monitor system behavior over time.
+The protocol tracks several operational statistics on-chain.
 
 ---
 
@@ -317,7 +442,7 @@ These values help monitor system behavior over time.
 
 Number of epochs where the rate limiter was triggered.
 
-High values may indicate strong controller pressure.
+High values indicate the controller is consistently hitting DELTA_R_MAX — strong sustained deviation pressure.
 
 ---
 
@@ -325,23 +450,23 @@ High values may indicate strong controller pressure.
 
 Number of epochs where price deviation fell within the deadband.
 
-High values indicate stable market conditions.
+High values indicate stable market conditions with P near R.
 
 ---
 
 ## oracleFallbacks
 
-Number of epochs where oracle fallback modes were used.
+Number of epochs where oracle fallback modes (B or C) were used.
 
-This metric measures oracle reliability.
+This metric measures oracle reliability over time.
 
 ---
 
 ## frozenEpochs
 
-Number of epochs where no valid price was available.
+Number of epochs where no valid price was available (Mode D).
 
-The controller freezes policy updates during these events.
+Rate updates are frozen but epochs still advance.
 
 ---
 
@@ -349,54 +474,72 @@ The controller freezes policy updates during these events.
 
 Number of times the controller activated emergency rate protection.
 
-This indicates severe system stress.
+Each event forced r = MAX_RATE due to system health below 120%.
 
 ---
 
 # Parameter Philosophy
 
-SunPLS deliberately keeps the parameter set small.
+SunPLS deliberately keeps the parameter set small and immutable.
 
 Goals:
 
 - easier economic analysis
-- reduced governance risk
+- zero governance risk post-deploy
 - lower implementation complexity
-- predictable system behavior
+- predictable deterministic behavior
 
-This approach aligns with the **minimal autonomous protocol design philosophy**.
+K and ALPHA are set at construction and cannot be changed. All vault ratios are compile-time constants. The system behaves identically from day one to year ten.
 
 ---
 
 # Parameter Transparency
 
-All parameters are visible on-chain through the Controller contract.
-
-Anyone can query:
+All Controller parameters are visible on-chain:
 
 ```
 getParameters()
 ```
 
-This transparency ensures the protocol's economic rules are publicly verifiable.
+All current system state is visible on-chain:
+
+```
+getCurrentState()
+```
+
+This transparency ensures the protocol's economic rules are publicly verifiable at any time.
 
 ---
 
 # Parameter Summary
 
-| Parameter | Purpose |
-|-----------|---------|
-| K | controller sensitivity |
-| ALPHA | equilibrium damping |
-| DEADBAND | noise filtering |
-| DELTA_R_MAX | rate limiter |
-| MIN_RATE | minimum borrowing rate |
-| MAX_RATE | maximum borrowing rate |
-| EPOCH_DURATION | policy update interval |
-| R_FLOOR | minimum bound on R |
-| MAX_R_MOVE_BPS | max equilibrium adjustment |
-| MAX_P_AGE | oracle freshness threshold |
-| EMERGENCY_HEALTH_THRESHOLD | system stress protection |
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| K | 1e15 | Controller sensitivity |
+| ALPHA | 5e15 | Equilibrium damping |
+| DEADBAND | 1e15 | Noise filter (0.1%) |
+| DELTA_R_MAX | 5e14 | Rate limiter (0.05%/epoch) |
+| MIN_RATE | -5e16 | Minimum borrowing rate (−5% APR) |
+| MAX_RATE | 20e16 | Maximum borrowing rate (20% APR) |
+| EPOCH_DURATION | 3600s | Policy update interval (1 hour) |
+| R_FLOOR | 1e18 | Minimum bound on R |
+| MAX_R_MOVE_BPS | 1000 | Max R adjustment (10%/epoch) |
+| MAX_P_AGE | 86400s | Oracle freshness threshold (24h) |
+| EMERGENCY_HEALTH_THRESHOLD | 120 | System stress protection |
+| COLLATERAL_RATIO | 150 | Minimum vault CR to mint/withdraw |
+| LIQUIDATION_RATIO | 110 | Vault CR below which liquidation opens |
+| REDEMPTION_RATIO | 130 | Vault CR at/below which redemption opens |
+| AUTOMINT_RATIO | 155 | Auto-mint target CR |
+| REDEMPTION_FEE_BPS | 50 | Redemption fee (0.5%) |
+| REDEMPTION_LIQUIDATION_GAP | 300s | Post-redemption liquidation freeze |
+| LIQUIDATION_COOLDOWN | 600s | Min time between liquidations |
+| MIN_LIQUIDATION_BPS | 2000 | Min liquidation size (20% of debt) |
+| MIN_BONUS_BPS | 200 | Starting liquidation bonus (2%) |
+| MAX_BONUS_BPS | 500 | Maximum liquidation bonus (5%) |
+| AUCTION_TIME | 10800s | Dutch auction duration (3 hours) |
+| WITHDRAW_COOLDOWN | 300s | Post-deposit withdrawal freeze |
+| MIN_SYSTEM_HEALTH | 130 | System-wide minting floor |
+| EMERGENCY_UNLOCK_TIME | 2592000s | Emergency collateral release (30 days) |
 
 ---
 
