@@ -14,17 +14,17 @@ However, the SunPLS controller introduces additional safety mechanisms and opera
 Both controllers implement a **proportional feedback controller**:
 
 ```
-ε = P − R
-Δr = K × (ε / R)
+ε = |P − R| / R
+Δr = K × ε
 ```
 
 Where:
 
 | Variable | Meaning |
 |--------|--------|
-| P | Market price |
-| R | System equilibrium value |
-| ε | Deviation between market and equilibrium |
+| P | Market price (WPLS per SunPLS) |
+| R | System equilibrium value (WPLS per SunPLS) |
+| ε | Normalized deviation between market and equilibrium |
 | r | System interest rate |
 | K | Proportional gain |
 
@@ -65,16 +65,17 @@ SunPLS introduces a **multi-stage oracle degradation model**:
 
 | Mode | Description |
 |-----|-------------|
-| Mode A | Fresh oracle update |
-| Mode B | Peek fallback |
-| Mode C | Stored price fallback |
-| Mode D | Freeze system |
+| Mode A | Fresh oracle update — full K, R updates |
+| Mode B | Peek fallback — K decayed by price age, R frozen |
+| Mode C | Stored price buffer — K decayed further, R frozen |
+| Mode D | No usable price — rate frozen, epoch still advances |
 
 This ensures:
 
 - controller continues functioning during oracle issues
 - graceful degradation instead of immediate freeze
 - system liveness during temporary failures
+- epoch never permanently stalls regardless of oracle state
 
 **Advantage: SunPLS**
 
@@ -85,13 +86,15 @@ This ensures:
 SunPLS reduces controller aggressiveness when price data becomes stale.
 
 ```
-effectiveK = K × (1 - age / MAX_P_AGE)
+effectiveK = K × (MAX_P_AGE − age) / MAX_P_AGE
 ```
 
 This prevents:
 
 - overreaction to stale prices
 - instability during oracle delays
+
+The decay is linear and reaches a minimum of 1 (not zero) so the formula never divides by zero downstream. K-decay applies in Modes B and C. Mode A always uses full K.
 
 ProjectUSD SPEC does not include dynamic gain reduction.
 
@@ -103,13 +106,13 @@ ProjectUSD SPEC does not include dynamic gain reduction.
 
 SunPLS includes a **vault health emergency mode**.
 
-If system collateralization drops below threshold:
+If system collateralization drops below threshold (120%):
 
 ```
-r = MAX_RATE
+r = MAX_RATE (20% APR)
 ```
 
-This forces rapid deleveraging across vaults.
+This forces rapid deleveraging across vaults. The emergency check runs at the start of every epoch before any oracle resolution, so it cannot be bypassed by oracle failure.
 
 The ProjectUSD controller does not define a similar automatic emergency mechanism.
 
@@ -123,9 +126,10 @@ SunPLS constrains how quickly the equilibrium value can move:
 
 | Mechanism | SunPLS | ProjectUSD |
 |-----------|--------|-----------|
-| R update requires fresh oracle | ✓ | not specified |
-| Maximum R change per epoch | ✓ | not defined |
-| R minimum movement bound enforced | ✓ | not specified |
+| R update requires fresh oracle (Mode A only) | ✓ | not specified |
+| Maximum R change per epoch (10%) | ✓ | not defined |
+| R minimum floor enforced (R_FLOOR) | ✓ | not specified |
+| R damping via ALPHA parameter | ✓ | partial |
 
 These protections prevent rapid shifts that could destabilize the system.
 
@@ -133,7 +137,21 @@ These protections prevent rapid shifts that could destabilize the system.
 
 ---
 
-# 6. Autonomous Operation
+# 6. Circular Deployment — Vault Latch
+
+SunPLS resolves the Controller ↔ Vault circular deployment dependency via a **one-time vault latch**.
+
+The Controller is deployed without a vault address. After the Vault is deployed, the deployer calls `setVault(vault)` once. This permanently latches the vault address and removes all deployer authority. `triggerEpoch()` requires the latch to be closed before executing.
+
+This eliminates the need for nonce prediction or CREATE2 while preserving full immutability post-latch.
+
+The ProjectUSD SPEC does not define a deployment sequence for this dependency.
+
+**Advantage: SunPLS**
+
+---
+
+# 7. Autonomous Operation
 
 ProjectUSD SPEC assumes integration with several system modules:
 
@@ -150,8 +168,8 @@ SunPLS intentionally simplifies architecture:
 Oracle
 Controller
 Vault
-Liquidations
-Redemptions
+Liquidations (built into Vault)
+Redemptions (built into Vault)
 ```
 
 Benefits:
@@ -159,12 +177,13 @@ Benefits:
 - fewer dependencies
 - reduced attack surface
 - simpler system invariants
+- no stability pool or surplus buffer required
 
 **Advantage: SunPLS**
 
 ---
 
-# 7. Controller Telemetry
+# 8. Controller Telemetry
 
 SunPLS records operational telemetry on-chain:
 
@@ -173,30 +192,32 @@ SunPLS records operational telemetry on-chain:
 | limiterHits | Detect rate limiter saturation |
 | deadbandSkips | Monitor price noise |
 | oracleFallbacks | Detect oracle degradation |
-| frozenEpochs | Identify oracle outages |
+| frozenEpochs | Identify complete oracle outages (Mode D) |
 | emergencyEpochs | Track systemic stress events |
 
-The ProjectUSD SPEC defines telemetry conceptually but does not implement tracking directly.
+All telemetry is readable via `getCurrentState()`. The ProjectUSD SPEC defines telemetry conceptually but does not implement tracking directly.
 
 **Advantage: SunPLS**
 
 ---
 
-# 8. Safety Invariants Enforcement
+# 9. Safety Invariants Enforcement
 
 SunPLS enforces strict system boundaries:
 
 ```
-|Δr| ≤ DELTA_R_MAX
-MIN_RATE ≤ r ≤ MAX_RATE
-R ≥ R_FLOOR
+|Δr| ≤ DELTA_R_MAX  (0.05% per epoch)
+MIN_RATE ≤ r ≤ MAX_RATE  (−5% to +20% APR)
+R ≥ R_FLOOR  (prevents division by zero)
+ε ≤ DEADBAND → no rate change  (0.1% noise filter)
 ```
 
 These constraints ensure:
 
-- bounded policy changes
+- bounded policy changes per epoch
 - no runaway interest rates
 - stable equilibrium reference
+- small deviations ignored rather than amplified
 
 The SPEC defines invariants but leaves implementation details open.
 
@@ -204,36 +225,38 @@ The SPEC defines invariants but leaves implementation details open.
 
 ---
 
-# 9. Control System Engineering
+# 10. Control System Engineering
 
 ProjectUSD describes a **basic proportional controller**.
 
 SunPLS implements a **hardened control system** with:
 
-- deadband filtering
-- rate limiting
-- oracle degradation handling
-- emergency overrides
-- bounded state transitions
-- telemetry monitoring
+- deadband filtering (ignore noise below 0.1%)
+- rate limiting (max 0.05% change per epoch)
+- oracle degradation handling (four modes)
+- emergency overrides (system health below 120%)
+- bounded state transitions (R capped at 10% move per epoch)
+- telemetry monitoring (five on-chain counters)
+- vault latch (circular deployment resolved without nonce tricks)
 
-This structure resembles **industrial control systems** designed for continuous operation.
+This structure resembles **industrial control systems** designed for continuous autonomous operation.
 
 ---
 
-# 10. Summary
+# 11. Summary
 
 | Feature | ProjectUSD Controller | SunPLS Controller |
 |-------|----------------------|------------------|
 | Feedback stabilization | ✓ | ✓ |
 | Deadband | ✓ | ✓ |
 | Rate limiter | ✓ | ✓ |
-| Oracle degradation modes | ✗ | ✓ |
-| Dynamic gain decay | ✗ | ✓ |
+| Oracle degradation modes (A/B/C/D) | ✗ | ✓ |
+| Dynamic gain decay (K decay) | ✗ | ✓ |
 | Emergency system protection | ✗ | ✓ |
-| Controlled R movement | partial | ✓ |
-| System telemetry | conceptual | ✓ |
-| Simplified architecture | ✗ | ✓ |
+| Controlled R movement (capped + ALPHA damping) | partial | ✓ |
+| System telemetry (on-chain counters) | conceptual | ✓ |
+| Simplified architecture (no stability pool) | ✗ | ✓ |
+| Circular deployment latch | not defined | ✓ |
 
 ---
 
@@ -243,11 +266,12 @@ The SunPLS Controller can be seen as a **production-grade evolution of the Proje
 
 While the ProjectUSD SPEC defines the theoretical framework for feedback-based stabilization, SunPLS extends the design with:
 
-- stronger fault tolerance
-- additional safety constraints
-- improved oracle handling
-- simplified system dependencies
-- real-time telemetry
+- stronger fault tolerance across four oracle degradation modes
+- additional safety constraints with explicit numerical bounds
+- improved oracle handling with K-decay during degraded operation
+- simplified system dependencies eliminating stability pool and surplus buffer
+- real-time on-chain telemetry
+- clean circular deployment resolution via one-time vault latch
 
 These enhancements make the SunPLS controller **more resilient and better suited for autonomous on-chain monetary policy**.
 
