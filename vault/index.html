@@ -1463,27 +1463,21 @@
       const CHUNK  = 10000;
       const tempPoints = [];
 
-      // Scan PriceUpdated and PublicRefresh events in chunks
+      // Scan PriceUpdated oracle events in chunks
+      // Event: PriceUpdated(uint256 price, uint256 timestamp, bool creeping)
       for (let from = 26000091; from <= latest; from += CHUNK) {
         const to = Math.min(from + CHUNK - 1, latest);
         try {
-          const [puEvents, prEvents] = await Promise.all([
-            oracle.queryFilter(oracle.filters.PriceUpdated(), from, to),
-            oracle.queryFilter(oracle.filters.PublicRefresh(), from, to)
-          ]);
-          puEvents.forEach(e => {
-            tempPoints.push({
-              time: Number(e.args.timestamp),
-              p:    Number(ethers.formatEther(e.args.newPrice)),
-              r:    0 // R not in this event, will be filled by controller polling
-            });
-          });
-          prEvents.forEach(e => {
-            tempPoints.push({
-              time: Number(e.args.timestamp),
-              p:    Number(ethers.formatEther(e.args.price)),
-              r:    0
-            });
+          const events = await oracle.queryFilter(oracle.filters.PriceUpdated(), from, to);
+          events.forEach(e => {
+            const p = Number(ethers.formatEther(e.args.price));
+            if (p > 0) {
+              tempPoints.push({
+                time: Number(e.args.timestamp),
+                p,
+                r: 0
+              });
+            }
           });
         } catch { continue; }
       }
