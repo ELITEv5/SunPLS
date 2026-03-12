@@ -16,9 +16,9 @@ The SunPLS monetary policy system operates using four key variables.
 
 | Variable | Meaning |
 |--------|--------|
-| `P` | Observed market price of SunPLS |
-| `R` | Internal equilibrium value |
-| `ε` | Price deviation (`P − R`) |
+| `P` | Observed market price of SunPLS (WPLS per SunPLS) |
+| `R` | Internal equilibrium value (WPLS per SunPLS) |
+| `ε` | Normalized price deviation (`\|P − R\| / R`) |
 | `r` | System borrowing rate |
 
 These variables define the economic state of the system.
@@ -30,18 +30,19 @@ These variables define the economic state of the system.
 The controller implements a proportional feedback mechanism.
 
 ```
-ε = P − R
+ε = |P − R| / R
 
-Δr = K × (ε / R)
+Δr = K × ε
 
-r_next = r_current + Δr
+r_next = r_current + Δr  (subject to rate limiter and bounds)
 ```
 
 Where:
 
 | Parameter | Description |
 |-----------|-------------|
-| `K` | controller gain coefficient |
+| `K` | controller gain coefficient (1e15 = 0.1%) |
+| `ε` | normalized deviation (absolute, dimensionless) |
 | `Δr` | rate change for the epoch |
 | `r` | borrowing rate applied to vault debt |
 
@@ -69,9 +70,9 @@ r increases
 
 Effects:
 
-- borrowing becomes more expensive  
-- minting slows  
-- supply growth decreases  
+- borrowing becomes more expensive
+- minting slows
+- supply growth decreases
 - market price falls toward equilibrium
 
 ---
@@ -94,10 +95,12 @@ r decreases
 
 Effects:
 
-- borrowing becomes cheaper  
-- minting increases  
-- supply expands  
+- borrowing becomes cheaper
+- minting increases
+- supply expands
 - market price rises toward equilibrium
+
+At the floor (MIN_RATE = −5% APR), negative rates reduce vault debt over time — the last autonomous recovery tool when redemption liquidity is exhausted.
 
 ---
 
@@ -108,7 +111,7 @@ Financial markets contain noise and short-term volatility.
 To prevent unnecessary rate adjustments, the controller implements a **deadband region**.
 
 ```
-|P − R| / R ≤ Deadband
+ε = |P − R| / R ≤ DEADBAND (0.1%)
 ```
 
 When the deviation remains within the deadband range, the controller performs **no rate change**.
@@ -124,16 +127,10 @@ Large policy changes can destabilize a system.
 To prevent abrupt interest rate changes, the controller enforces a **rate limiter**.
 
 ```
-|Δr| ≤ δr_max
+|Δr| ≤ DELTA_R_MAX (0.05% per epoch)
 ```
 
-Where:
-
-```
-δr_max = maximum rate change per epoch
-```
-
-This ensures that monetary policy evolves smoothly.
+This ensures that monetary policy evolves smoothly even during large price deviations. When the limiter fires, `limiterHits` is incremented.
 
 ---
 
@@ -142,24 +139,24 @@ This ensures that monetary policy evolves smoothly.
 The equilibrium value `R` is allowed to adjust slowly toward the observed market price.
 
 ```
-R_next = R + α(P − R)
+ΔR = ALPHA × (P − R)
 ```
 
 Where:
 
 | Parameter | Meaning |
 |-----------|--------|
-| `α` | damping factor |
+| `ALPHA` | damping factor (5e15 = 0.5%) |
 
 This allows the equilibrium value to adapt gradually while avoiding sudden shifts.
 
 Additional safety:
 
 ```
-|ΔR| ≤ 10% per epoch
+|ΔR| ≤ R × 10% per epoch
 ```
 
-This prevents rapid equilibrium changes.
+R only moves during Mode A epochs — a fresh oracle price is required. R never moves during fallback modes.
 
 ---
 
@@ -169,14 +166,14 @@ The controller requires a price signal from the oracle.
 
 SunPLS therefore includes **multiple oracle degradation modes** to maintain safe operation during oracle failures.
 
-| Mode | Behavior |
-|------|---------|
-| Mode A | fresh oracle update |
-| Mode B | fallback price using `peek()` |
-| Mode C | stored last known price |
-| Mode D | freeze controller if no valid price |
+| Mode | Behavior | K | R |
+|------|---------|---|---|
+| Mode A | Fresh oracle update | Full K | Updates |
+| Mode B | Peek fallback price | K decayed by price age | Frozen |
+| Mode C | Stored last known price | K decayed further | Frozen |
+| Mode D | No valid price available | 0 (rate frozen) | Frozen |
 
-These modes ensure the system continues operating safely even if oracle updates temporarily fail.
+These modes ensure the system continues operating safely even if oracle updates temporarily fail. Epochs always advance — the system never permanently stalls.
 
 ---
 
@@ -185,16 +182,17 @@ These modes ensure the system continues operating safely even if oracle updates 
 When oracle price data becomes stale, the controller reduces its responsiveness.
 
 ```
-effectiveK = K × (1 − age / MAX_P_AGE)
+effectiveK = K × (MAX_P_AGE − age) / MAX_P_AGE
 ```
 
 Where:
 
 | Parameter | Meaning |
 |-----------|--------|
-| `age` | time since last fresh oracle update |
+| `age` | time since last Mode A (fresh) oracle update |
+| `MAX_P_AGE` | 24 hours |
 
-This prevents aggressive policy adjustments based on outdated market data.
+The minimum effectiveK is 1 (not zero) — this prevents division by zero downstream while still significantly reducing controller aggressiveness. Once age exceeds MAX_P_AGE, the controller enters Mode D and freezes rate updates entirely.
 
 ---
 
@@ -202,13 +200,13 @@ This prevents aggressive policy adjustments based on outdated market data.
 
 The controller includes an emergency safety mechanism.
 
-If vault health across the system drops below a defined threshold:
+If vault system health drops below 120% at the start of an epoch:
 
 ```
-r = MAX_RATE
+r = MAX_RATE (20% APR)
 ```
 
-This forces borrowing costs to increase rapidly, encouraging:
+This check runs before oracle resolution and cannot be bypassed by oracle failure. It forces borrowing costs to increase rapidly, encouraging:
 
 - debt repayment
 - deleveraging
@@ -220,7 +218,7 @@ This forces borrowing costs to increase rapidly, encouraging:
 
 The controller executes once per epoch.
 
-Typical epoch duration:
+Epoch duration:
 
 ```
 3600 seconds (1 hour)
@@ -228,14 +226,18 @@ Typical epoch duration:
 
 Epoch sequence:
 
-1. retrieve market price from oracle  
-2. compute price deviation `ε`  
-3. apply deadband filter  
-4. compute rate change `Δr`  
-5. apply rate limiter  
-6. update borrowing rate `r`  
-7. adjust equilibrium value `R` (if fresh price available)  
-8. emit telemetry events  
+1. emergency health check — if system health < 120%, force MAX_RATE and exit
+2. resolve oracle price (Mode A → B → C → D)
+3. if Mode D, freeze rate and advance epoch
+4. compute normalized deviation `ε = |P − R| / R`
+5. apply deadband filter — if ε ≤ 0.1%, skip rate change
+6. compute rate change `Δr = K × ε`
+7. apply rate limiter — cap at DELTA_R_MAX
+8. clamp to absolute bounds (MIN_RATE to MAX_RATE)
+9. update borrowing rate `r`
+10. adjust equilibrium value `R` toward P (Mode A only)
+11. push rate to vault
+12. emit telemetry events and advance epoch counter
 
 ---
 
@@ -245,13 +247,13 @@ The controller records operational statistics to monitor system behavior.
 
 | Metric | Purpose |
 |------|--------|
-| `limiterHits` | measures controller pressure |
-| `deadbandSkips` | tracks noise filtering |
-| `oracleFallbacks` | monitors oracle reliability |
-| `frozenEpochs` | detects oracle outages |
-| `emergencyEpochs` | records stress events |
+| `limiterHits` | measures controller pressure (rate limiter saturation) |
+| `deadbandSkips` | tracks noise filtering (P near R) |
+| `oracleFallbacks` | monitors oracle reliability (Modes B and C) |
+| `frozenEpochs` | detects complete oracle outages (Mode D) |
+| `emergencyEpochs` | records systemic stress events |
 
-These metrics allow public monitoring of the protocol's health.
+All metrics are readable via `getCurrentState()` on the Controller contract.
 
 ---
 
@@ -267,10 +269,10 @@ Over time, the market price should converge toward the equilibrium value.
 
 This convergence occurs through:
 
-- supply incentives
-- borrowing costs
-- redemption arbitrage
-- liquidation pressure
+- supply incentives (rate adjustments)
+- borrowing costs (positive or negative r)
+- redemption arbitrage (direct price floor enforcement)
+- liquidation pressure (removal of unsafe positions)
 
 Together these mechanisms form a **closed feedback system**.
 
@@ -293,14 +295,18 @@ market reaction
 SunPLS replaces this process with deterministic code:
 
 ```
-market price signal
+market price signal (P)
 ↓
-controller algorithm
+controller algorithm (ε, K, deadband, limiter)
 ↓
-automatic rate adjustment
+automatic rate adjustment (r)
+↓
+vault incentives
+↓
+supply response
 ```
 
-Monetary policy becomes transparent and predictable.
+Monetary policy becomes transparent, predictable, and manipulation-resistant.
 
 ---
 
@@ -315,7 +321,7 @@ Therefore:
 - PLS volatility still affects collateral values
 - extreme market conditions may temporarily widen price deviations
 
-However, the system's feedback loop attempts to restore equilibrium over time.
+However, the system's feedback loop attempts to restore equilibrium over time through rate adjustments, redemption arbitrage, and liquidation pressure working in parallel.
 
 ---
 
