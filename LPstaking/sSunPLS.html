@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>sSunPLS - Auto-Compounding LP Vault</title>
     <link rel="icon" href="sunplslogo.png" type="image/png" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <script src="ethers.umd.min.js"></script>
     <style>
         body {
             margin: 0; background: #0a001f; color: #ffebd1;
@@ -83,6 +83,17 @@
         .btn + .btn  { margin-top: 8px; }
         input + .btn { margin-top: 8px; }
 
+        /* How To button */
+        .btn-howto {
+            background: linear-gradient(135deg, #b45309, #f59e0b);
+            color: #000; border: 2px solid transparent;
+            cursor: pointer; box-shadow: 0 4px 15px rgba(180,83,9,0.3);
+        }
+        .btn-howto:hover:not(:disabled) {
+            background: linear-gradient(135deg, #f59e0b, #fde047);
+            transform: translateY(-2px);
+        }
+
         .preview     { color: #ffbd70; text-align: center; font-size: 0.9em; margin-top: 6px; min-height: 1.2em; }
         .helper-text { color: #999; text-align: center; font-size: 0.8em; margin-top: 6px; font-style: italic; }
 
@@ -130,6 +141,47 @@
             border-top-color: #ff8c00; animation: spin 1s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal */
+        .modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.88); z-index: 10000; display: none;
+            overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px 10px;
+        }
+        .modal-content {
+            background: #0d001a; border: 2px solid #ff8c00; border-radius: 18px;
+            padding: 24px 20px; max-width: 440px; width: 95%;
+            overflow-y: auto; margin: 0 auto; position: relative;
+            box-shadow: 0 10px 50px rgba(255,140,0,0.3);
+        }
+        .modal-content h3 { color: #ffd700; margin-top: 0; font-size: 1.2em; }
+        .modal-content h4 { color: #ff8c00; margin: 16px 0 6px; font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.05em; }
+        .modal-content p  { color: #ffebd1; font-size: 0.9em; line-height: 1.65; margin: 6px 0; }
+        .modal-content ul { padding-left: 18px; color: #ffebd1; font-size: 0.9em; line-height: 1.7; margin: 6px 0; }
+        .modal-content li { margin-bottom: 4px; }
+        .modal-content strong { color: #fbbf24; }
+        .modal-close {
+            color: #ff3366; float: right; font-size: 2em; cursor: pointer;
+            line-height: 0.8; margin-top: -6px; background: none; border: none;
+        }
+        .modal-step {
+            display: flex; align-items: flex-start; gap: 12px; margin: 10px 0;
+            background: rgba(255,140,0,0.06); border-radius: 10px; padding: 10px 12px;
+            border: 1px solid rgba(255,140,0,0.18);
+        }
+        .modal-step-num {
+            background: linear-gradient(135deg, #ff8c00, #ffa500);
+            color: #000; font-weight: 800; font-size: 0.85em;
+            min-width: 26px; height: 26px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .modal-step-text { font-size: 0.88em; color: #ffebd1; line-height: 1.55; }
+        .modal-step-text strong { color: #fbbf24; }
+        .modal-highlight {
+            background: rgba(0,255,157,0.07); border: 1px solid rgba(0,255,157,0.2);
+            border-radius: 8px; padding: 8px 12px; margin: 10px 0;
+            font-size: 0.86em; color: #00ff9d; line-height: 1.6;
+        }
     </style>
 </head>
 <body>
@@ -152,6 +204,11 @@
         <div class="price-sub" id="plsPriceDisplay">PLS Price: —</div>
         <div class="status" id="status"></div>
         <div class="error"  id="error"></div>
+
+        <!-- How To -->
+        <div class="card">
+            <button class="btn btn-howto" id="howToBtn">How to Use sSunPLS</button>
+        </div>
 
         <!-- Vault Stats -->
         <div class="card">
@@ -188,7 +245,6 @@
                     <div class="value" id="nextHarvest">—</div>
                 </div>
             </div>
-            <!-- Residuals — hidden when zero -->
             <div id="residualRow" style="display:none">
                 <hr class="divider">
                 <div class="stats-3">
@@ -315,19 +371,67 @@
         </div>
     </footer>
 
+    <!-- How To Modal -->
+    <div class="modal" id="howModal">
+        <div class="modal-content">
+            <button class="modal-close" id="modalClose">×</button>
+            <h3>sSunPLS Vault Guide</h3>
+
+            <h4>What is sSunPLS?</h4>
+            <p>sSunPLS is an auto-compounding vault for the SunPLS/WPLS liquidity pool on PulseChain. When you provide liquidity to that pool, you earn trading fees. Normally you'd have to manually claim and reinvest those fees — this vault does it for you, automatically, on every harvest.</p>
+
+            <div class="modal-highlight">
+                Your sSunPLS shares grow in LP value over time. You never need to click "claim" — just stake and withdraw when you're ready.
+            </div>
+
+            <h4>How to Stake</h4>
+            <div class="modal-step">
+                <div class="modal-step-num">1</div>
+                <div class="modal-step-text"><strong>Get LP tokens first.</strong> Add liquidity to the SunPLS/WPLS pair on PulseX to receive LP tokens in your wallet.</div>
+            </div>
+            <div class="modal-step">
+                <div class="modal-step-num">2</div>
+                <div class="modal-step-text"><strong>Connect your wallet</strong> (top right). It will switch to PulseChain automatically.</div>
+            </div>
+            <div class="modal-step">
+                <div class="modal-step-num">3</div>
+                <div class="modal-step-text"><strong>Enter your LP amount</strong> in the Stake section and click <strong>Stake LP Tokens</strong>. The first deposit requires an approval transaction.</div>
+            </div>
+            <div class="modal-step">
+                <div class="modal-step-num">4</div>
+                <div class="modal-step-text"><strong>Receive sSunPLS shares.</strong> These represent your proportional stake in the vault. Hold them — they appreciate automatically as fees are compounded in.</div>
+            </div>
+
+            <h4>How to Withdraw</h4>
+            <div class="modal-step">
+                <div class="modal-step-num">1</div>
+                <div class="modal-step-text">To exit partially, enter a share amount and click <strong>Withdraw Partial</strong>.</div>
+            </div>
+            <div class="modal-step">
+                <div class="modal-step-num">2</div>
+                <div class="modal-step-text">To exit fully, click <strong>Withdraw All</strong>. You receive your original LP plus all compounded gains.</div>
+            </div>
+
+            <h4>What is Auto-Compounding?</h4>
+            <p>Every time someone calls <strong>Harvest</strong>, the vault collects the accumulated trading fees from the pool, converts them into more LP tokens, and adds them back to the vault. This increases the LP value of every sSunPLS share — so your position grows without any action on your part.</p>
+            <p>Harvest is permissionless — anyone can trigger it. There is a 1-hour cooldown between harvests.</p>
+
+            <h4>Exchange Rate</h4>
+            <p>The exchange rate shown at the top is how many LP tokens each sSunPLS share is worth. It starts at 1.0 and increases over time as fees compound in. A rate of 1.05 means your shares are worth 5% more LP than when you deposited.</p>
+
+            <h4>Immutable &amp; Ownerless</h4>
+            <p>The vault contract has no admin keys and cannot be upgraded. It operates autonomously on PulseChain.</p>
+        </div>
+    </div>
+
     <script>
         const ethers = window.ethers;
         if (!ethers) alert("Ethers.js failed to load");
 
-        // ── Addresses ────────────────────────────────────────────────────────────
-        // UPDATE: replace SSUNPLS_ADDRESS once deployed
         const SSUNPLS_ADDRESS  = '0x9b03a144A3dBaF1bf069474447168A9af54aA6a4';
         const LP_TOKEN_ADDRESS = '0xca46e01F4bF6938e8d8b8d22a570fFE96E9F0b19';
         const SUNPLS_ADDRESS   = '0x04b37fa64a8d73a37D636608e5F6F8E5ce1541Aa';
-
-        // SunPLS Oracle — used to get PLS/USD price
-        // Using the SunPLS oracle directly since it tracks PLS price
-        const ORACLE_ADDRESS = '0xc8B4d7d885D41826CB46376676638449332aeA87';
+        const ORACLE_ADDRESS   = '0xc8B4d7d885D41826CB46376676638449332aeA87';
 
         const SSUNPLS_ABI = [
             {"name":"deposit","type":"function","inputs":[{"name":"lpAmount","type":"uint256"}],"outputs":[{"name":"shares","type":"uint256"}],"stateMutability":"nonpayable"},
@@ -370,10 +474,6 @@
             "function token1() view returns (address)"
         ];
 
-        // SunPLS oracle ABI — correct signatures from deployed contract
-        // peek() returns confirmed price (WPLS per SunPLS, 18 decimals)
-        // getSpotPrice() returns live spot price from reserves
-        // wplsIsToken0() tells us pair token ordering — no address comparison needed
         const ORACLE_ABI = [
             "function peek() view returns (uint256 price, uint256 timestamp)",
             "function getSpotPrice() view returns (uint256)",
@@ -383,15 +483,9 @@
         ];
 
         let provider, signer, userAddress, sSunPLSContract, lpTokenContract, pairContract, oracleContract;
-        let plsUSD     = 0;   // USD per 1 PLS — from oracle
-        let lpUnitUSD  = 0;   // USD per 1 LP token — computed from reserves
+        let plsUSD    = 0;
+        let lpUnitUSD = 0;
 
-        // ── PLS price from SunPLS oracle ──────────────────────────────────────────
-        // Oracle tracks the SunPLS/WPLS pair.
-        // peek() returns the confirmed price as: WPLS per 1 SunPLS (18 decimals)
-        // Since SunPLS targets a $1 soft peg:
-        //   wplsPerSunPLS ≈ how many PLS = $1  →  plsUSD = 1 / wplsPerSunPLS
-        // We also grab getSpotPrice() for display comparison vs confirmed price.
         async function updatePLSPrice() {
             try {
                 const [confirmedPrice] = await oracleContract.peek();
@@ -417,63 +511,31 @@
             }
         }
 
-        // ── LP token USD value ────────────────────────────────────────────────────
-        // SunPLS/WPLS pair — both sides are volatile, both need oracle pricing.
-        //
-        // Oracle: peek() returns wplsPerSunPLS (WPLS needed to buy 1 SunPLS, 18 dec)
-        // From this, since SunPLS targets $1 peg:
-        //   plsUSD    = 1 / wplsPerSunPLS          (USD value of 1 WPLS/PLS)
-        //   sunplsUSD = wplsPerSunPLS * plsUSD = 1  (should be ~$1 at peg)
-        //
-        // But we do NOT hardcode sunplsUSD = $1. We derive it properly:
-        //   sunplsUSD = wplsPerSunPLS * plsUSD
-        //             = wplsPerSunPLS * (1 / wplsPerSunPLS)
-        //             = 1.0  exactly at peg, floats with market
-        //
-        // Pool USD = (reserveSunPLS * sunplsUSD) + (reserveWPLS * plsUSD)
-        // LP USD   = Pool USD / lpTotalSupply
-        //
-        // Token ordering: read wplsIsToken0() directly from oracle — no address guessing.
         async function computeLPUnitUSD() {
             try {
-                if (plsUSD === 0) return 0; // oracle not yet loaded
-
+                if (plsUSD === 0) return 0;
                 const [[reserve0, reserve1], lpSupply, wplsIsT0] = await Promise.all([
                     pairContract.getReserves(),
                     pairContract.totalSupply(),
                     oracleContract.wplsIsToken0()
                 ]);
-
                 const r0     = parseFloat(ethers.utils.formatEther(reserve0));
                 const r1     = parseFloat(ethers.utils.formatEther(reserve1));
                 const supply = parseFloat(ethers.utils.formatEther(lpSupply));
                 if (supply === 0) return 0;
-
-                // Assign reserves correctly using oracle's authoritative token0 flag
                 const reserve_wpls   = wplsIsT0 ? r0 : r1;
                 const reserve_sunpls = wplsIsT0 ? r1 : r0;
-
-                // SunPLS USD price — derived from oracle, not hardcoded
-                // wplsPerSunPLS is already stored in plsUSD derivation above:
-                //   plsUSD = 1 / wplsPerSunPLS  →  wplsPerSunPLS = 1 / plsUSD
-                // sunplsUSD = (1 / plsUSD) * plsUSD = 1.0  at peg
-                // Keep it explicit so it floats correctly with oracle updates:
                 const [confirmedPrice] = await oracleContract.peek();
                 const wplsPerSunPLS = parseFloat(ethers.utils.formatEther(confirmedPrice));
-                const sunplsUSD = wplsPerSunPLS * plsUSD; // = 1.0 at peg, floats off-peg
-
+                const sunplsUSD = wplsPerSunPLS * plsUSD;
                 const poolUSD = (reserve_sunpls * sunplsUSD) + (reserve_wpls * plsUSD);
                 lpUnitUSD = poolUSD / supply;
-
-                // Update pool info card
                 document.getElementById("reserve0").textContent      = fmt(reserve_sunpls, 2) + " SunPLS";
                 document.getElementById("reserve1").textContent      = fmt(reserve_wpls, 2) + " WPLS";
                 document.getElementById("lpTotalSupply").textContent = fmt(supply, 6);
                 document.getElementById("lpTokenPrice").textContent  = "$" + lpUnitUSD.toFixed(6);
-                document.getElementById("sunplsPrice").textContent   = "$" + sunplsUSD.toFixed(6) +
-                    "  (" + wplsPerSunPLS.toFixed(0) + " WPLS)";
+                document.getElementById("sunplsPrice").textContent   = "$" + sunplsUSD.toFixed(6) + "  (" + wplsPerSunPLS.toFixed(0) + " WPLS)";
                 document.getElementById("poolTVL").textContent       = "$" + poolUSD.toFixed(2);
-
                 return lpUnitUSD;
             } catch (e) {
                 console.error("LP value calc error:", e);
@@ -481,7 +543,6 @@
             }
         }
 
-        // ── Wallet connect ────────────────────────────────────────────────────────
         async function connectWallet() {
             try {
                 if (!window.ethereum) return alert("Please install MetaMask");
@@ -489,34 +550,25 @@
                 provider    = new ethers.providers.Web3Provider(window.ethereum);
                 signer      = provider.getSigner();
                 userAddress = await signer.getAddress();
-
                 const network = await provider.getNetwork();
                 if (Number(network.chainId) !== 369) {
                     try {
-                        await window.ethereum.request({
-                            method: "wallet_switchEthereumChain",
-                            params: [{ chainId: "0x171" }]
-                        });
+                        await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x171" }] });
                     } catch { return alert("Please switch to PulseChain"); }
                 }
-
                 sSunPLSContract = new ethers.Contract(SSUNPLS_ADDRESS,  SSUNPLS_ABI, signer);
                 lpTokenContract = new ethers.Contract(LP_TOKEN_ADDRESS, ERC20_ABI,   signer);
                 pairContract    = new ethers.Contract(LP_TOKEN_ADDRESS, PAIR_ABI,    provider);
                 oracleContract  = new ethers.Contract(ORACLE_ADDRESS,   ORACLE_ABI,  provider);
-
-                document.getElementById("walletText").textContent =
-                    userAddress.slice(0,6) + "..." + userAddress.slice(-4);
+                document.getElementById("walletText").textContent = userAddress.slice(0,6) + "..." + userAddress.slice(-4);
                 document.getElementById("walletBtn").classList.add("connected");
                 document.querySelectorAll(".btn").forEach(b => b.disabled = false);
-
                 await updatePLSPrice();
                 await loadData();
                 setInterval(async () => { await updatePLSPrice(); await loadData(); }, 10000);
             } catch (e) { showError(e.message || "Connection failed"); }
         }
 
-        // ── Main data refresh ─────────────────────────────────────────────────────
         async function loadData() {
             if (!sSunPLSContract) return;
             try {
@@ -525,25 +577,16 @@
                     sSunPLSContract.canHarvest(),
                     sSunPLSContract.totalSupply()
                 ]);
-
                 await computeLPUnitUSD();
-
-                // Exchange rate
                 const rate = parseFloat(ethers.utils.formatEther(stats.currentExchangeRate));
-                document.getElementById("exchangeRate").textContent =
-                    "Exchange Rate: " + rate.toFixed(6) + " LP/sSunPLS";
-
-                // Vault stats
+                document.getElementById("exchangeRate").textContent = "Exchange Rate: " + rate.toFixed(6) + " LP/sSunPLS";
                 const totalLPHeld = parseFloat(ethers.utils.formatEther(stats.totalLPHeld));
                 document.getElementById("tvl").textContent            = "$" + (totalLPHeld * lpUnitUSD).toFixed(2);
                 document.getElementById("totalSupply").textContent    = fmt(parseFloat(ethers.utils.formatEther(totalSupply)), 4);
                 document.getElementById("totalHarvests").textContent  = stats.harvestCount.toString();
                 document.getElementById("feesCompounded").textContent = fmt(parseFloat(ethers.utils.formatEther(stats.feesCompounded)), 6) + " LP";
-
-                // Timing
                 const secsSince = stats.timeSinceLastHarvest.toNumber();
                 document.getElementById("timeSinceHarvest").textContent = formatDuration(secsSince);
-
                 const harvestBtn = document.getElementById("harvestBtn");
                 if (canHarvest.ready) {
                     document.getElementById("nextHarvest").textContent    = "Now";
@@ -555,20 +598,15 @@
                     document.getElementById("harvestPreview").textContent = "Next harvest in " + formatDuration(secsUntil);
                     harvestBtn.disabled = true;
                 }
-
-                // Residuals — label correctly based on which token is which
                 const r0raw = parseFloat(ethers.utils.formatEther(stats.pendingResidual0));
                 const r1raw = parseFloat(ethers.utils.formatEther(stats.pendingResidual1));
                 if (r0raw > 0 || r1raw > 0) {
                     document.getElementById("residualRow").style.display = "block";
-                    // token0/token1 from pair contract — label based on resolved order
                     document.getElementById("pendingToken0").textContent = r0raw.toFixed(6);
                     document.getElementById("pendingToken1").textContent = r1raw.toFixed(6);
                 } else {
                     document.getElementById("residualRow").style.display = "none";
                 }
-
-                // User position
                 if (userAddress) {
                     const [position, lpBalance, maxLP, allowance] = await Promise.all([
                         sSunPLSContract.positionInfo(userAddress),
@@ -576,14 +614,12 @@
                         sSunPLSContract.maxWithdraw(userAddress),
                         lpTokenContract.allowance(userAddress, SSUNPLS_ADDRESS)
                     ]);
-
                     const sharesOwned = parseFloat(ethers.utils.formatEther(position.sharesOwned));
                     const lpValue     = parseFloat(ethers.utils.formatEther(position.lpValue));
                     const earnedLP    = parseFloat(ethers.utils.formatEther(position.earnedLP));
                     const appBps      = parseFloat(position.appreciationBps.toString());
                     const lpBal       = parseFloat(ethers.utils.formatEther(lpBalance));
                     const maxLPFloat  = parseFloat(ethers.utils.formatEther(maxLP));
-
                     document.getElementById("userShares").textContent       = sharesOwned.toFixed(6);
                     document.getElementById("userLPValue").textContent      = lpValue.toFixed(6);
                     document.getElementById("userEarned").textContent       = "+" + earnedLP.toFixed(6);
@@ -591,64 +627,45 @@
                     document.getElementById("lpBalance").textContent        = lpBal.toFixed(6);
                     document.getElementById("lpBalanceUSD").textContent     = "$" + (lpBal * lpUnitUSD).toFixed(2);
                     document.getElementById("userAppreciation").textContent = (appBps / 100).toFixed(4) + "%";
-
                     document.getElementById("withdrawAllPreview").textContent =
-                        maxLPFloat > 0
-                            ? "Returns " + maxLPFloat.toFixed(6) + " LP  (~$" + (maxLPFloat * lpUnitUSD).toFixed(2) + ")"
-                            : "";
-
-                    // APY — time-weighted annualisation
+                        maxLPFloat > 0 ? "Returns " + maxLPFloat.toFixed(6) + " LP  (~$" + (maxLPFloat * lpUnitUSD).toFixed(2) + ")" : "";
                     if (appBps > 0 && secsSince > 0) {
                         const apy = ((appBps / 10000) * (365 * 24 * 3600 / secsSince) * 100).toFixed(2);
                         document.getElementById("vaultAPY").textContent = apy + "%";
                     } else {
                         document.getElementById("vaultAPY").textContent = "0.00%";
                     }
-
-                    // Approval banner
-                    document.getElementById("approveBanner").style.display =
-                        allowance.isZero() ? "block" : "none";
+                    document.getElementById("approveBanner").style.display = allowance.isZero() ? "block" : "none";
                 }
-
             } catch (e) { console.error("Load error:", e); }
         }
 
-        // ── Input previews ────────────────────────────────────────────────────────
         document.getElementById("depositAmount").addEventListener("input", async (e) => {
             const amount = e.target.value;
-            if (!amount || !sSunPLSContract) {
-                document.getElementById("depositPreview").textContent = ""; return;
-            }
+            if (!amount || !sSunPLSContract) { document.getElementById("depositPreview").textContent = ""; return; }
             try {
-                // Ensure lpUnitUSD is populated before showing USD estimate
                 if (lpUnitUSD === 0) { await updatePLSPrice(); await computeLPUnitUSD(); }
                 const shares = await sSunPLSContract.previewDeposit(ethers.utils.parseEther(amount));
                 const sf  = parseFloat(ethers.utils.formatEther(shares));
                 const usd = parseFloat(amount) * lpUnitUSD;
                 const usdStr = lpUnitUSD > 0 ? "  (~$" + usd.toFixed(2) + ")" : "";
-                document.getElementById("depositPreview").textContent =
-                    "Will receive " + sf.toFixed(6) + " sSunPLS" + usdStr;
+                document.getElementById("depositPreview").textContent = "Will receive " + sf.toFixed(6) + " sSunPLS" + usdStr;
             } catch { document.getElementById("depositPreview").textContent = ""; }
         });
 
         document.getElementById("withdrawAmount").addEventListener("input", async (e) => {
             const amount = e.target.value;
-            if (!amount || !sSunPLSContract) {
-                document.getElementById("withdrawPreview").textContent = ""; return;
-            }
+            if (!amount || !sSunPLSContract) { document.getElementById("withdrawPreview").textContent = ""; return; }
             try {
                 const lpOut = await sSunPLSContract.previewWithdraw(ethers.utils.parseEther(amount));
                 const lf = parseFloat(ethers.utils.formatEther(lpOut));
-                document.getElementById("withdrawPreview").textContent =
-                    "Returns " + lf.toFixed(6) + " LP  (~$" + (lf * lpUnitUSD).toFixed(2) + ")";
+                document.getElementById("withdrawPreview").textContent = "Returns " + lf.toFixed(6) + " LP  (~$" + (lf * lpUnitUSD).toFixed(2) + ")";
             } catch { document.getElementById("withdrawPreview").textContent = ""; }
         });
 
-        // ── Helpers ───────────────────────────────────────────────────────────────
         function fmt(n, decimals) {
             return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
         }
-
         function formatDuration(secs) {
             if (secs <= 0) return "0s";
             const h = Math.floor(secs / 3600);
@@ -658,7 +675,6 @@
             if (m > 0) return m + "m " + s + "s";
             return s + "s";
         }
-
         function showError(msg) {
             document.getElementById("error").textContent = msg;
             setTimeout(() => document.getElementById("error").textContent = "", 6000);
@@ -667,7 +683,6 @@
             document.getElementById("status").textContent = msg;
             setTimeout(() => document.getElementById("status").textContent = "", 6000);
         }
-
         async function withLoading(btn, fn) {
             const orig = btn.textContent;
             btn.disabled = true;
@@ -686,7 +701,6 @@
             }
         }
 
-        // ── Actions ───────────────────────────────────────────────────────────────
         document.getElementById("depositBtn").onclick = async () => {
             const amount = document.getElementById("depositAmount").value;
             if (!amount) return showError("Enter an amount");
@@ -728,7 +742,20 @@
 
         document.getElementById("walletBtn").onclick = connectWallet;
 
-        // ── Nebula background ─────────────────────────────────────────────────────
+        // Modal
+        document.getElementById("howToBtn").onclick = () => {
+            document.getElementById("howModal").style.display = "flex";
+        };
+        document.getElementById("modalClose").onclick = () => {
+            document.getElementById("howModal").style.display = "none";
+        };
+        document.getElementById("howModal").onclick = (e) => {
+            if (e.target === document.getElementById("howModal")) {
+                document.getElementById("howModal").style.display = "none";
+            }
+        };
+
+        // Nebula
         const bg = document.getElementById("bg");
         let t = 0, mouseX = 0, mouseY = 0, targetX = 0, targetY = 0;
         function animate() {
