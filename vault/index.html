@@ -246,6 +246,14 @@
     /*  ORACLE STATUS  */
     #safetyCard { margin-top: 12px; }
 
+    /*  READ-ONLY BANNER  */
+    #readOnlyBanner {
+      text-align: center; font-size: 0.82em; color: var(--muted);
+      padding: 8px 12px; margin-bottom: 12px;
+      background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15);
+      border-radius: 10px;
+    }
+
     /*  FOOTER  */
     .footer {
       text-align: center; margin: 40px 0 20px; padding: 20px 10px; font-size: 0.85em;
@@ -320,11 +328,13 @@
     <div class="status" id="status"></div>
     <div class="error"  id="error"></div>
 
-    <!-- Vault Stats -->
-    <div class="card"><div class="stats" id="stats">Connect wallet to begin</div></div>
+    <!-- Read-only banner (shown before wallet connect) -->
+    <div id="readOnlyBanner">
+      Live data — connect wallet to manage your vault
+    </div>
 
     <!-- Global System Stats -->
-    <div class="card" id="globalStats">
+    <div class="card" id="globalStats" style="display:none">
       <div style="text-align:center;font-size:0.88em;color:var(--muted);margin-bottom:8px">Global SunPLS System</div>
       <div class="stats">
         <div class="stat"><div class="label">Total Collateral</div><div class="value" id="totalColl">—</div></div>
@@ -332,6 +342,11 @@
         <div class="stat"><div class="label">System Health</div><div class="value" id="sysHealth">—</div></div>
         <div class="stat"><div class="label">Your Share</div><div class="value" id="yourShare">—</div></div>
       </div>
+    </div>
+
+    <!-- Vault Stats (wallet only) -->
+    <div class="card" id="vaultStatsCard" style="display:none">
+      <div class="stats" id="stats">Connect wallet to begin</div>
     </div>
 
     <!-- How To -->
@@ -519,7 +534,7 @@
   </footer>
 
   <script>
-  // 
+  //
   // SUNPLS VAULT INTERFACE
   // Contracts: Vault, Token (SunPLS), Oracle (TWAP), Controller (R-value)
   // Chain: PulseChain (369)
@@ -531,30 +546,36 @@
   // Therefore:
   //   PLS value of N SunPLS  = N * price / 1e18
   //   SunPLS value of N PLS  = N * 1e18 / price
-  // 
+  //
 
   const ethers = window.ethers;
 
-  //  Contract Addresses 
+  // Public PulseChain RPC for read-only pre-connect data
+  const PUBLIC_RPC = "https://rpc.pulsechain.com";
+
+  //  Contract Addresses
   const VAULT_ADDR      = "0x6521899F840847de88E87A121447FfB7b5aF9aF0";
   const TOKEN_ADDR      = "0x04b37fa64a8d73a37D636608e5F6F8E5ce1541Aa";
   const ORACLE_ADDR     = "0xc8B4d7d885D41826CB46376676638449332aeA87";
   const CONTROLLER_ADDR = "0x0e736966F6d0dCd41acd575c3dDece3b3B6033A7";
 
-  //  Global State 
+  //  Global State
   let provider, signer, vault, token, oracle, controller, account;
+  // Read-only provider + contracts (no wallet needed)
+  let roProvider, roOracle, roController, roVault;
   let price = 0n;
-  let currentR = 1n * (10n ** 18n); // R in 1e18 — WPLS per SunPLS
+  let currentR = 1n * (10n ** 18n);
   const DECIMALS = 10n ** 18n;
+  let walletConnected = false;
 
-  //  DOM Refs 
-  const statusEl  = document.getElementById("status");
-  const errorEl   = document.getElementById("error");
-  const statsEl   = document.getElementById("stats");
+  //  DOM Refs
+  const statusEl   = document.getElementById("status");
+  const errorEl    = document.getElementById("error");
+  const statsEl    = document.getElementById("stats");
   const walletText = document.getElementById("walletText");
   const walletBtn  = document.getElementById("walletBtn");
 
-  //  Load ABIs from JSON files 
+  //  Load ABIs from JSON files
   async function loadABIs() {
     const [v, t, o, c] = await Promise.all([
       fetch("sunpls-vault-abi.json").then(r => r.json()),
@@ -565,39 +586,30 @@
     return [v, t, o, c];
   }
 
-  //  Skeleton Loader 
+  //  Skeleton Loader
   let dataLoaded = false;
-
   function showSkeleton() {
     if (dataLoaded) return;
     const els = ["stats", "totalColl", "totalDebt", "sysHealth", "yourShare",
                  "ctrlR", "ctrlRate", "ctrlEpochs", "ctrlNext", "ctrlCan", "ctrlLimiter"];
-    els.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.classList.add("skeleton");
-    });
+    els.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add("skeleton"); });
   }
-
   function hideSkeleton() {
     dataLoaded = true;
     document.querySelectorAll(".skeleton").forEach(el => el.classList.remove("skeleton"));
   }
 
-  //  Vault Health Alert 
-  let lastHealthState = "ok"; // "ok" | "warn" | "risk"
-
+  //  Vault Health Alert
+  let lastHealthState = "ok";
   function checkHealthAlert(ratioPct) {
     const banner   = document.getElementById("healthAlert");
     const alertTxt = document.getElementById("healthAlertText");
     if (!banner || isNaN(ratioPct) || ratioPct > 1e9) return;
-
     let newState = "ok";
     if (ratioPct < 110)      newState = "risk";
     else if (ratioPct < 130) newState = "warn";
-
-    if (newState === lastHealthState) return; // no change
+    if (newState === lastHealthState) return;
     lastHealthState = newState;
-
     if (newState === "ok") {
       banner.style.display = "none";
       document.body.style.boxShadow = "";
@@ -614,7 +626,162 @@
     }
   }
 
-  //  Connect Wallet 
+  // ─── READ-ONLY INIT (no wallet required) ───────────────────────────────────
+  // Starts immediately on page load using public RPC.
+  // Populates: price, rateDisplay, controller panel, global stats, chart history.
+  async function initReadOnly() {
+    try {
+      const [ORACLE_ABI, CTRL_ABI, VAULT_ABI] = await Promise.all([
+        fetch("sunpls-oracle-abi.json").then(r => r.json()),
+        fetch("sunpls-controller-abi.json").then(r => r.json()),
+        fetch("sunpls-vault-abi.json").then(r => r.json())
+      ]);
+      roProvider   = new ethers.JsonRpcProvider(PUBLIC_RPC);
+      roOracle     = new ethers.Contract(ORACLE_ADDR,     ORACLE_ABI, roProvider);
+      roController = new ethers.Contract(CONTROLLER_ADDR, CTRL_ABI,   roProvider);
+      roVault      = new ethers.Contract(VAULT_ADDR,      VAULT_ABI,  roProvider);
+
+      // Populate price, controller, global stats, chart — all without a wallet
+      await Promise.all([
+        roUpdatePrice(),
+        roLoadControllerState(),
+        roLoadGlobalStats()
+      ]);
+      roCheckOracleHealth();
+
+      // Chart history scan uses roProvider / roOracle
+      await loadChartHistory(roOracle, roProvider);
+
+      // Poll read-only data every 60s until wallet connects
+      setInterval(() => { if (!walletConnected) { roUpdatePrice(); roLoadControllerState(); roLoadGlobalStats(); } }, 60000);
+      setInterval(() => { if (!walletConnected) roCheckOracleHealth(); }, 20000);
+
+    } catch (e) {
+      console.warn("Read-only init failed:", e.message);
+      document.getElementById("price").textContent = "Connect wallet to load";
+    }
+  }
+
+  async function roUpdatePrice() {
+    try {
+      const [p] = await roOracle.peek();
+      price = p;
+      const wplsPerSunPLS = Number(ethers.formatEther(p));
+      let displayVal;
+      if (wplsPerSunPLS >= 1_000_000)  displayVal = (wplsPerSunPLS / 1_000_000).toFixed(2) + "M";
+      else if (wplsPerSunPLS >= 1_000) displayVal = (wplsPerSunPLS / 1_000).toFixed(2) + "K";
+      else                             displayVal = wplsPerSunPLS.toFixed(4);
+      document.getElementById("price").textContent = displayVal + " WPLS per SunPLS";
+      pushChartPoint();
+    } catch {
+      document.getElementById("price").textContent = "Oracle offline";
+      price = 0n;
+    }
+  }
+
+  async function roLoadControllerState() {
+    try {
+      const s = await roController.getCurrentState();
+      currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
+      _renderControllerState(s);
+    } catch (e) { console.log("RO controller state failed:", e.message); }
+  }
+
+  async function roLoadGlobalStats() {
+    try {
+      const [totalColl, totalDebt, health] = await Promise.all([
+        roVault.totalCollateral(),
+        roVault.totalDebt(),
+        roVault.systemHealth()
+      ]);
+      _renderGlobalStats(totalColl, totalDebt, health, null);
+    } catch (e) { console.log("RO global stats failed:", e.message); }
+  }
+
+  async function roCheckOracleHealth() {
+    const el  = document.getElementById("oracleStatus");
+    const btn = document.getElementById("updateOracleBtn");
+    try {
+      const healthy = await roOracle.isHealthy();
+      const [, ts]  = await roOracle.peek();
+      const age = Math.floor(Date.now()/1000) - Number(ts);
+      if (healthy && age < 86400) {
+        el.textContent = `Oracle healthy – ${(age/60).toFixed(1)} min ago`;
+        el.style.color = "#10b981";
+        btn.disabled = true;
+      } else {
+        el.textContent = "Oracle stale – connect wallet to update";
+        el.style.color = "#ef4444";
+        btn.disabled = true; // needs signer
+      }
+    } catch {
+      el.textContent = "Oracle check failed";
+      el.style.color = "#ef4444";
+    }
+  }
+
+  // ─── SHARED RENDER HELPERS ─────────────────────────────────────────────────
+  function _renderControllerState(s) {
+    currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
+    const Rraw = Number(ethers.formatEther(currentR));
+    let Rdisplay;
+    if (Rraw >= 1_000_000)  Rdisplay = (Rraw / 1_000_000).toFixed(2) + "M";
+    else if (Rraw >= 1_000) Rdisplay = (Rraw / 1_000).toFixed(2) + "K";
+    else                    Rdisplay = Rraw.toFixed(4);
+
+    const rateAPR   = Number(s.currentRate) / 1e16;
+    const epochs    = Number(s.epochs);
+    const untilNext = Number(s.timeUntilNext);
+    const canTrig   = s.canTrigger;
+    const limHits   = Number(s.limiterHitCount);
+
+    document.getElementById("ctrlR").textContent       = Rdisplay + " WPLS/SunPLS";
+    document.getElementById("ctrlRate").textContent    = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
+    document.getElementById("ctrlEpochs").textContent  = epochs.toString();
+    document.getElementById("ctrlNext").textContent    = untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
+    document.getElementById("ctrlCan").textContent     = canTrig ? "Yes" : "No";
+    document.getElementById("ctrlLimiter").textContent = limHits.toString();
+
+    const oracleRaw = Number(ethers.formatEther(price));
+    const spread    = (oracleRaw > 0 && Rraw > 0) ? ((oracleRaw - Rraw) / Rraw * 100) : 0;
+    const spreadStr = (spread >= 0 ? "+" : "") + spread.toFixed(3) + "%";
+    const rateDisplay = document.getElementById("rateDisplay");
+    rateDisplay.textContent = `Rate: ${(rateAPR >= 0 ? "+" : "")}${rateAPR.toFixed(4)}% APR | R = ${Rdisplay} WPLS/SunPLS | Spread: ${spreadStr}`;
+    rateDisplay.style.color = rateAPR > 0 ? "#f87171" : rateAPR < 0 ? "#34d399" : "#fbbf24";
+
+    if (walletConnected) document.getElementById("triggerEpochBtn").disabled = !canTrig;
+  }
+
+  function _renderGlobalStats(totalColl, totalDebt, health, userCollateral) {
+    const collNum   = Number(ethers.formatEther(totalColl));
+    const debtNum   = Number(ethers.formatEther(totalDebt));
+    const healthNum = Number(health);
+    function fmtBig(n) {
+      if (n >= 1e9) return (n/1e9).toFixed(2) + "B";
+      if (n >= 1e6) return (n/1e6).toFixed(2) + "M";
+      if (n >= 1e3) return (n/1e3).toFixed(2) + "K";
+      return n.toFixed(2);
+    }
+    document.getElementById("totalColl").textContent = fmtBig(collNum) + " PLS";
+    document.getElementById("totalDebt").textContent = fmtBig(debtNum) + " SunPLS";
+    const hEl = document.getElementById("sysHealth");
+    hEl.textContent = healthNum.toFixed(1) + "%";
+    hEl.className   = "value " + (healthNum < 130 ? "risk" : healthNum < 150 ? "warn" : "safe");
+    if (userCollateral !== null) {
+      const yourColl = Number(ethers.formatEther(userCollateral));
+      if (yourColl > 0 && collNum > 0) {
+        const share = (yourColl / collNum) * 100;
+        document.getElementById("yourShare").textContent = share < 0.01 ? "<0.01%" : share.toFixed(2) + "%";
+      } else {
+        document.getElementById("yourShare").textContent = "0%";
+      }
+    } else {
+      document.getElementById("yourShare").textContent = "—";
+    }
+    document.getElementById("globalStats").style.display = "block";
+  }
+
+  // ─── WALLET CONNECT ────────────────────────────────────────────────────────
   async function connectWallet() {
     try {
       if (!window.ethereum) return alert("Please install MetaMask");
@@ -641,10 +808,15 @@
       oracle     = new ethers.Contract(ORACLE_ADDR,     ORACLE_ABI, provider);
       controller = new ethers.Contract(CONTROLLER_ADDR, CTRL_ABI,   signer);
 
+      walletConnected = true;
       walletText.textContent = account.slice(0,6) + "..." + account.slice(-4);
       walletBtn.classList.add("connected");
 
-      // Enable all buttons except ones that self-manage their disabled state
+      // Hide read-only banner, show vault stats card
+      document.getElementById("readOnlyBanner").style.display = "none";
+      document.getElementById("vaultStatsCard").style.display = "block";
+
+      // Enable wallet-only buttons
       document.querySelectorAll(".btn").forEach(b => {
         if (!b.id.startsWith("trigger") && !b.id.startsWith("update")) b.disabled = false;
       });
@@ -660,8 +832,8 @@
       checkOracleHealth();
       setInterval(checkOracleHealth, 20000);
 
-      // Load chart history then start live tracking
-      await loadChartHistory();
+      // Re-run chart history scan with wallet provider (better RPC for event logs)
+      await loadChartHistory(oracle, provider);
       setInterval(pushChartPoint, 60000);
 
     } catch (e) {
@@ -670,7 +842,7 @@
     }
   }
 
-  //  Oracle precision check (non-critical) 
+  //  Oracle precision check (non-critical)
   async function detectOraclePrecision() {
     try {
       const p = await oracle.PRECISION();
@@ -682,14 +854,12 @@
     try {
       const [p, ts] = await oracle.peek();
       price = p;
-      // Oracle returns: WPLS per 1 SunPLS, scaled by 1e18
       const wplsPerSunPLS = Number(ethers.formatEther(p));
       let displayVal;
-      if (wplsPerSunPLS >= 1_000_000)     displayVal = (wplsPerSunPLS / 1_000_000).toFixed(2) + "M";
-      else if (wplsPerSunPLS >= 1_000)    displayVal = (wplsPerSunPLS / 1_000).toFixed(2) + "K";
-      else                                displayVal = wplsPerSunPLS.toFixed(4);
+      if (wplsPerSunPLS >= 1_000_000)  displayVal = (wplsPerSunPLS / 1_000_000).toFixed(2) + "M";
+      else if (wplsPerSunPLS >= 1_000) displayVal = (wplsPerSunPLS / 1_000).toFixed(2) + "K";
+      else                             displayVal = wplsPerSunPLS.toFixed(4);
       document.getElementById("price").textContent = displayVal + " WPLS per SunPLS";
-      // Push live point to chart on every price refresh
       pushChartPoint();
     } catch {
       document.getElementById("price").textContent = "Oracle offline";
@@ -697,7 +867,6 @@
     }
   }
 
-  //  Oracle health check 
   async function checkOracleHealth() {
     const el  = document.getElementById("oracleStatus");
     const btn = document.getElementById("updateOracleBtn");
@@ -721,48 +890,13 @@
     }
   }
 
-  //  Load Controller / Rate Engine State 
   async function loadControllerState() {
     try {
       const s = await controller.getCurrentState();
-      currentR = s.redemptionValue > 0n ? s.redemptionValue : price;
-
-      const Rraw = Number(ethers.formatEther(currentR));
-      let Rdisplay;
-      if (Rraw >= 1_000_000)     Rdisplay = (Rraw / 1_000_000).toFixed(2) + "M";
-      else if (Rraw >= 1_000)    Rdisplay = (Rraw / 1_000).toFixed(2) + "K";
-      else                       Rdisplay = Rraw.toFixed(4);
-
-      const rateBig   = s.currentRate;
-      const rateAPR   = Number(rateBig) / 1e16;
-      const epochs    = Number(s.epochs);
-      const untilNext = Number(s.timeUntilNext);
-      const canTrig   = s.canTrigger;
-      const limHits   = Number(s.limiterHitCount);
-
-      document.getElementById("ctrlR").textContent       = Rdisplay + " WPLS/SunPLS";
-      document.getElementById("ctrlRate").textContent    = (rateAPR >= 0 ? "+" : "") + rateAPR.toFixed(4) + "% APR";
-      document.getElementById("ctrlEpochs").textContent  = epochs.toString();
-      document.getElementById("ctrlNext").textContent    = untilNext > 0 ? Math.ceil(untilNext/60) + " min" : "Now";
-      document.getElementById("ctrlCan").textContent     = canTrig ? "Yes" : "No";
-      document.getElementById("ctrlLimiter").textContent = limHits.toString();
-
-      const oracleRaw = Number(ethers.formatEther(price));
-      const spread    = (oracleRaw > 0 && Rraw > 0) ? ((oracleRaw - Rraw) / Rraw * 100) : 0;
-      const spreadStr = (spread >= 0 ? "+" : "") + spread.toFixed(3) + "%";
-
-      const rateDisplay = document.getElementById("rateDisplay");
-      rateDisplay.textContent = `Rate: ${(rateAPR >= 0 ? "+" : "")}${rateAPR.toFixed(4)}% APR | R = ${Rdisplay} WPLS/SunPLS | Spread: ${spreadStr}`;
-      rateDisplay.style.color = rateAPR > 0 ? "#f87171" : rateAPR < 0 ? "#34d399" : "#fbbf24";
-
-      document.getElementById("triggerEpochBtn").disabled = !canTrig;
-
-    } catch (e) {
-      console.log("Controller state failed:", e.message);
-    }
+      _renderControllerState(s);
+    } catch (e) { console.log("Controller state failed:", e.message); }
   }
 
-  //  Load Global System Stats 
   async function loadGlobalStats() {
     try {
       const [totalColl, totalDebt, health] = await Promise.all([
@@ -770,59 +904,25 @@
         vault.totalDebt(),
         vault.systemHealth()
       ]);
-      const collNum   = Number(ethers.formatEther(totalColl));
-      const debtNum   = Number(ethers.formatEther(totalDebt));
-      const healthNum = Number(health);
-
-      function fmtBig(n) {
-        if (n >= 1e9) return (n/1e9).toFixed(2) + "B";
-        if (n >= 1e6) return (n/1e6).toFixed(2) + "M";
-        if (n >= 1e3) return (n/1e3).toFixed(2) + "K";
-        return n.toFixed(2);
-      }
-
-      document.getElementById("totalColl").textContent = fmtBig(collNum) + " PLS";
-      document.getElementById("totalDebt").textContent = fmtBig(debtNum) + " SunPLS";
-      const hEl = document.getElementById("sysHealth");
-      hEl.textContent = healthNum.toFixed(1) + "%";
-      hEl.className   = "value " + (healthNum < 130 ? "risk" : healthNum < 150 ? "warn" : "safe");
-
       const info = await vault.vaultInfo(account);
-      const yourColl = Number(ethers.formatEther(info.collateral));
-      if (yourColl > 0 && collNum > 0) {
-        const share = (yourColl / collNum) * 100;
-        document.getElementById("yourShare").textContent = share < 0.01 ? "<0.01%" : share.toFixed(2) + "%";
-      } else {
-        document.getElementById("yourShare").textContent = "0%";
-      }
-      document.getElementById("globalStats").style.display = "block";
-    } catch (e) {
-      console.log("Global stats failed:", e.message);
-    }
+      _renderGlobalStats(totalColl, totalDebt, health, info.collateral);
+    } catch (e) { console.log("Global stats failed:", e.message); }
   }
 
-  //  Conversions 
-  // Oracle price = WPLS per SunPLS (1e18-scaled)
-  //   SunPLS value of N PLS  = N * 1e18 / price
-  //   PLS value of N SunPLS  = N * price / 1e18
-
+  //  Conversions
   function sunplsToPLS(sunplsVal) {
     if (!price || price === 0n) return 0n;
     const sunplsWei = ethers.parseUnits(sunplsVal.toString(), 18);
     return (sunplsWei * price) / DECIMALS;
   }
-
   function sunplsToWei(amount) { return ethers.parseUnits(amount.toString(), 18); }
-
   function plsToSunpls(plsWei) {
     if (!price || price === 0n) return 0;
     return Number(ethers.formatEther((plsWei * DECIMALS) / price));
   }
-
   const usdToPLS    = sunplsToPLS;
   const usdToSunPLS = sunplsToWei;
 
-  // Dynamic cooldown — read from contract, fallback 300s
   let WITHDRAW_COOLDOWN_SECS = 300;
   async function fetchCooldown() {
     try {
@@ -831,7 +931,7 @@
     } catch { WITHDRAW_COOLDOWN_SECS = 300; }
   }
 
-  //  Load Vault Data 
+  //  Load Vault Data
   async function loadVault() {
     try {
       const i = await vault.vaultInfo(account);
@@ -842,9 +942,9 @@
 
       const redemptionRaw = Number(ethers.formatEther(i.redemptionVal));
       let redemptionDisplay;
-      if (redemptionRaw >= 1_000_000)     redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
-      else if (redemptionRaw >= 1_000)    redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
-      else                                redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
+      if (redemptionRaw >= 1_000_000)  redemptionDisplay = (redemptionRaw/1_000_000).toFixed(2) + "M WPLS/SunPLS";
+      else if (redemptionRaw >= 1_000) redemptionDisplay = (redemptionRaw/1_000).toFixed(2) + "K WPLS/SunPLS";
+      else                             redemptionDisplay = redemptionRaw.toFixed(4) + " WPLS/SunPLS";
 
       const collValDisplay = Number(ethers.formatEther(i.collateralValueUSD)).toFixed(6);
 
@@ -880,7 +980,6 @@
         </div>
       `;
 
-      //  Repay to Safe preview 
       const needed = await vault.repayToHealth(account);
       const rtsPreview = document.getElementById("repayToSafePreview");
       const rtsBtn     = document.getElementById("repayToSafeBtn");
@@ -894,7 +993,6 @@
         rtsBtn.disabled = true;
       }
 
-      //  Mint Max preview 
       const mmPreview = document.getElementById("mintMaxPreview");
       const mmBtn     = document.getElementById("mintMaxBtn");
       if (i.mintable > 0n) {
@@ -911,7 +1009,6 @@
         mmBtn.disabled = true;
       }
 
-      //  Withdraw Max preview 
       const wmPreview  = document.getElementById("withdrawMaxPreview");
       const wmBtn      = document.getElementById("withdrawMaxBtn");
       const wmCooldown = document.getElementById("withdrawCooldownWarning");
@@ -928,12 +1025,10 @@
       } else {
         wmCooldown.style.display = "none";
         if (i.debt === 0n && i.collateral > 0n) {
-          const plsNum = Number(ethers.formatEther(i.collateral));
-          wmPreview.textContent = `Withdraw all ${plsNum.toFixed(2)} PLS`;
+          wmPreview.textContent = `Withdraw all ${Number(ethers.formatEther(i.collateral)).toFixed(2)} PLS`;
           wmPreview.style.color = "#10b981";
           wmBtn.disabled = false;
         } else if (i.debt > 0n && i.collateral > 0n && price > 0n) {
-          // requiredCollateral = debt * 150 * price / (100 * 1e18) + 0.1% safety margin
           const requiredCollateral = (((i.debt * 150n) / 100n) * price * 1001n) / (DECIMALS * 1000n);
           if (i.collateral <= requiredCollateral) {
             wmPreview.textContent = "At minimum safe collateral — repay debt to withdraw more";
@@ -941,8 +1036,7 @@
             wmBtn.disabled = true;
           } else {
             const withdrawablePLS = i.collateral - requiredCollateral;
-            const wdNum = Number(ethers.formatEther(withdrawablePLS));
-            wmPreview.textContent = `Withdraw ≈ ${wdNum.toFixed(2)} PLS safely (vault stays at 150%)`;
+            wmPreview.textContent = `Withdraw ≈ ${Number(ethers.formatEther(withdrawablePLS)).toFixed(2)} PLS safely (vault stays at 150%)`;
             wmPreview.style.color = "#10b981";
             wmBtn.disabled = false;
           }
@@ -953,7 +1047,6 @@
         }
       }
 
-      //  Emergency Unlock check 
       const emCard    = document.getElementById("emergencyCard");
       const emPreview = document.getElementById("emergencyPreview");
       const emBtn     = document.getElementById("emergencyBtn");
@@ -979,21 +1072,19 @@
     }
   }
 
-  //  Live Input Previews 
+  //  Live Input Previews
   document.getElementById("usdIn").addEventListener("input", () => {
     const plsAmt = parseFloat(document.getElementById("usdIn").value) || 0;
     const el = document.getElementById("plsOut");
     if (!plsAmt || !price) { el.textContent = ""; return; }
-    const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
-    el.textContent = `≈ ${sunplsVal.toFixed(6)} SunPLS value`;
+    el.textContent = `≈ ${plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18)).toFixed(6)} SunPLS value`;
   });
 
   document.getElementById("usdOut").addEventListener("input", () => {
     const plsAmt = parseFloat(document.getElementById("usdOut").value) || 0;
     const el = document.getElementById("plsIn");
     if (!plsAmt || !price) { el.textContent = ""; return; }
-    const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
-    el.textContent = `≈ ${sunplsVal.toFixed(6)} SunPLS value`;
+    el.textContent = `≈ ${plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18)).toFixed(6)} SunPLS value`;
   });
 
   document.getElementById("usdOneClick").addEventListener("input", () => {
@@ -1001,8 +1092,7 @@
     const el = document.getElementById("plsOneClick");
     if (!plsAmt || !price) { el.textContent = ""; return; }
     const sunplsVal = plsToSunpls(ethers.parseUnits(plsAmt.toString(), 18));
-    const mintAmt   = sunplsVal / 1.55;
-    el.textContent  = `≈ ${sunplsVal.toFixed(6)} SunPLS value → mints ${mintAmt.toFixed(6)} SunPLS (at 155%)`;
+    el.textContent = `≈ ${sunplsVal.toFixed(6)} SunPLS value → mints ${(sunplsVal / 1.55).toFixed(6)} SunPLS (at 155%)`;
   });
 
   document.getElementById("usdMint").addEventListener("input", async () => {
@@ -1032,14 +1122,13 @@
       if (repayWei > info.debt) {
         el.innerHTML = `<span style="color:#fbbf24">Exceeds debt of ${Number(ethers.formatEther(info.debt)).toFixed(4)} SunPLS</span>`;
       } else {
-        const remaining = info.debt - repayWei;
-        el.textContent = `Remaining debt: ${Number(ethers.formatEther(remaining)).toFixed(4)} SunPLS`;
+        el.textContent = `Remaining debt: ${Number(ethers.formatEther(info.debt - repayWei)).toFixed(4)} SunPLS`;
         el.style.color = "#a3e635";
       }
     } catch { el.textContent = ""; }
   });
 
-  //  Transaction Wrapper 
+  //  Transaction Wrapper
   async function withLoading(btn, fn) {
     const orig = btn.textContent;
     btn.disabled = true;
@@ -1059,8 +1148,7 @@
     }
   }
 
-  //  Button Handlers 
-
+  //  Button Handlers
   document.getElementById("oneClickBtn").onclick = () =>
     withLoading(document.getElementById("oneClickBtn"), async () => {
       const plsAmt = parseFloat(document.getElementById("usdOneClick").value);
@@ -1095,9 +1183,7 @@
       if (!usd || usd <= 0) throw new Error("Enter amount");
       const amt = usdToSunPLS(usd);
       const allowance = await token.allowance(account, VAULT_ADDR);
-      if (allowance < amt) {
-        await (await token.approve(VAULT_ADDR, amt)).wait();
-      }
+      if (allowance < amt) await (await token.approve(VAULT_ADDR, amt)).wait();
       await (await vault.repay(amt)).wait();
     });
 
@@ -1107,9 +1193,7 @@
       if (needed === 0n) throw new Error("Already safe at 150%+");
       const approveAmt = (needed * 10050n) / 10000n;
       const allowance  = await token.allowance(account, VAULT_ADDR);
-      if (allowance < approveAmt) {
-        await (await token.approve(VAULT_ADDR, approveAmt)).wait();
-      }
+      if (allowance < approveAmt) await (await token.approve(VAULT_ADDR, approveAmt)).wait();
       await (await vault.repay(needed)).wait();
       statusEl.textContent = `Repaid ${Number(ethers.formatEther(needed)).toFixed(4)} SunPLS — vault now at 150%`;
     });
@@ -1118,9 +1202,7 @@
     withLoading(document.getElementById("repayAllBtn"), async () => {
       const info = await vault.vaultInfo(account);
       if (info.collateral === 0n) throw new Error("No collateral to withdraw");
-      if (info.debt > 0n) {
-        await (await token.approve(VAULT_ADDR, ethers.MaxUint256)).wait();
-      }
+      if (info.debt > 0n) await (await token.approve(VAULT_ADDR, ethers.MaxUint256)).wait();
       await (await vault.repayAndWithdrawAll()).wait();
     });
 
@@ -1139,15 +1221,12 @@
       const cool  = WITHDRAW_COOLDOWN_SECS - (now - Number(vData.lastDepositTime));
       if (cool > 0) throw new Error(`Cooldown active — wait ${Math.ceil(cool/60)} more minute(s)`);
       if (info.collateral === 0n) throw new Error("No collateral to withdraw");
-
       if (info.debt === 0n) {
         await (await vault.withdrawPLS(info.collateral)).wait();
         statusEl.textContent = `Withdrew all ${Number(ethers.formatEther(info.collateral)).toFixed(2)} PLS`;
       } else {
         const requiredCollateral = (((info.debt * 150n) / 100n) * price * 1001n) / (DECIMALS * 1000n);
-        if (info.collateral <= requiredCollateral) {
-          throw new Error("Already at minimum safe collateral — repay debt first");
-        }
+        if (info.collateral <= requiredCollateral) throw new Error("Already at minimum safe collateral — repay debt first");
         const withdrawablePLS = info.collateral - requiredCollateral;
         if (withdrawablePLS === 0n) throw new Error("Withdrawable amount rounds to zero");
         await (await vault.withdrawPLS(withdrawablePLS)).wait();
@@ -1205,20 +1284,18 @@
 
   walletBtn.onclick = connectWallet;
 
-  //  How To Modal 
+  //  How To Modal
   const howModal = document.createElement("div");
   howModal.className = "modal";
   howModal.innerHTML = `
     <div class="modal-content">
       <span class="close">×</span>
       <h3> SunPLS Vault Guide</h3>
-
       <h4> Getting Started</h4>
       <ol>
         <li><strong>Connect Wallet</strong> (top right). Switches to PulseChain automatically.</li>
         <li><strong>Check price</strong> at the top — live from on-chain TWAP oracle.</li>
       </ol>
-
       <h4> Easiest Method (Recommended)</h4>
       <p><strong>1-Click Auto Mint (155%)</strong></p>
       <ul>
@@ -1226,7 +1303,6 @@
         <li>System deposits PLS and mints SunPLS in one transaction</li>
         <li>Opens vault at 155% — safe buffer above 150% minimum</li>
       </ul>
-
       <h4> Manual Controls</h4>
       <ul>
         <li><strong>Deposit PLS:</strong> Lock collateral (5-min cooldown starts)</li>
@@ -1234,40 +1310,35 @@
         <li><strong>Repay Debt:</strong> Burn SunPLS — instant, no cooldown</li>
         <li><strong>Withdraw PLS:</strong> Ratio must stay above 150%</li>
       </ul>
-
       <h4> Vault Health</h4>
       <ul style="line-height:1.7">
         <li> <strong>150%+:</strong> Safe zone — immune to redemption</li>
         <li> <strong>130–150%:</strong> Distressed — redemption eligible</li>
         <li> <strong>Below 110%:</strong> Liquidatable</li>
       </ul>
-
       <h4> Redemption System</h4>
       <ul>
         <li>SunPLS can be redeemed for PLS from any eligible vault</li>
         <li>Only vaults at or below 130% CR are eligible — vaults above 130% are immune</li>
-        <li>Use the <strong>Vault Dashboard</strong> to find eligible vaults automatically — no address copy-paste needed</li>
+        <li>Use the <strong>Vault Dashboard</strong> to find eligible vaults automatically</li>
         <li>R = the controller's redemption value (in WPLS per SunPLS) — adjusts each epoch based on peg deviation</li>
         <li>Small fee (0.5%) goes to the vault owner whose collateral is redeemed</li>
         <li>Spread = (P - R) / R, where both P and R are measured in WPLS per SunPLS</li>
       </ul>
-
       <h4> Controller / Rate Engine</h4>
       <ul>
-        <li>Controller adjusts the stability fee (interest rate) each epoch based on oracle spread</li>
+        <li>Controller adjusts the stability fee each epoch based on oracle spread</li>
         <li>When SunPLS trades above R (positive spread), rate increases</li>
         <li>When SunPLS trades below R (negative spread), rate decreases</li>
-        <li>R tracks the controller's internal redemption price in WPLS per SunPLS — moves slowly each epoch</li>
+        <li>R tracks the controller's internal redemption price — moves slowly each epoch</li>
         <li>Anyone can call <strong>Trigger Epoch</strong> to advance the rate engine</li>
       </ul>
-
       <h4> Safety Protections</h4>
       <ul>
         <li> 5-minute cooldown after deposits</li>
         <li> 30-day emergency unlock with zero debt</li>
         <li>Contract blocks actions that drop you below 150%</li>
       </ul>
-
       <h4> Common Questions</h4>
       <ul>
         <li><strong>Fees?</strong> Dynamic stability rate set by the Controller (can be positive or negative)</li>
@@ -1282,16 +1353,11 @@
     if (e.target.className === "modal" || e.target.className === "close") howModal.style.display = "none";
   };
 
-  //  Price Chart 
-  // Stores {time, p, r} datapoints. Built from:
-  //   1. PriceUpdated + PublicRefresh oracle events (historical)
-  //   2. Live polling every 60s (extends forward in real time)
-
-  const CHART_CACHE_KEY = "sunpls_chart_v1";
-  const chartPoints = []; // { time: unix seconds, p: float WPLS/SunPLS, r: float WPLS/SunPLS }
+  //  Price Chart
+  const CHART_CACHE_KEY = "sunpls_chart_v14";
+  const chartPoints = [];
   let chartLoaded = false;
 
-  // Load cached points immediately — draws before wallet connects
   (function loadChartCache() {
     try {
       const raw = localStorage.getItem(CHART_CACHE_KEY);
@@ -1299,26 +1365,23 @@
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         parsed.forEach(pt => chartPoints.push(pt));
-        // drawChart() called below once DOM is ready
-        document.addEventListener("DOMContentLoaded", () => {
-          drawChart();
-          document.getElementById("chartStatus").textContent =
-            chartPoints.length + " cached points — refreshing from chain...";
-        });
-        // If DOM already ready
         if (document.readyState !== "loading") {
           drawChart();
           const s = document.getElementById("chartStatus");
           if (s) s.textContent = chartPoints.length + " cached points — refreshing from chain...";
+        } else {
+          document.addEventListener("DOMContentLoaded", () => {
+            drawChart();
+            document.getElementById("chartStatus").textContent =
+              chartPoints.length + " cached points — refreshing from chain...";
+          });
         }
       }
     } catch { /* ignore bad cache */ }
   })();
 
   function saveChartCache() {
-    try {
-      localStorage.setItem(CHART_CACHE_KEY, JSON.stringify(chartPoints.slice(-500)));
-    } catch { /* storage full */ }
+    try { localStorage.setItem(CHART_CACHE_KEY, JSON.stringify(chartPoints.slice(-500))); } catch { }
   }
 
   function toggleChart() {
@@ -1357,55 +1420,48 @@
     const cW = W - PAD.left - PAD.right;
     const cH = H - PAD.top  - PAD.bottom;
 
-    const allP  = chartPoints.map(d => d.p);
-    const allR  = chartPoints.map(d => d.r).filter(r => r > 0);
+    const allP    = chartPoints.map(d => d.p);
+    const allR    = chartPoints.map(d => d.r).filter(r => r > 0);
     const allVals = [...allP, ...allR];
     let minV = Math.min(...allVals);
     let maxV = Math.max(...allVals);
     const pad = (maxV - minV) * 0.08 || maxV * 0.05 || 1;
     minV -= pad; maxV += pad;
 
-    const minT = chartPoints[0].time;
-    const maxT = chartPoints[chartPoints.length - 1].time;
+    const minT   = chartPoints[0].time;
+    const maxT   = chartPoints[chartPoints.length - 1].time;
     const rangeT = maxT - minT || 1;
     const rangeV = maxV - minV;
 
     const xOf = t => PAD.left + ((t - minT) / rangeT) * cW;
     const yOf = v => PAD.top  + (1 - (v - minV) / rangeV) * cH;
 
-    // Background
     ctx.fillStyle = "rgba(7,0,15,0.6)";
     ctx.fillRect(0, 0, W, H);
 
-    // Grid lines
     ctx.strokeStyle = "rgba(245,158,11,0.08)";
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = PAD.top + (cH / 4) * i;
       ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
-      const val = maxV - (rangeV / 4) * i;
       ctx.fillStyle = "#92400e";
       ctx.font = "10px monospace";
       ctx.textAlign = "right";
-      ctx.fillText(fmtPrice(val), PAD.left - 4, y + 3);
+      ctx.fillText(fmtPrice(maxV - (rangeV / 4) * i), PAD.left - 4, y + 3);
     }
 
-    // Time labels
     ctx.fillStyle = "#92400e";
     ctx.font = "10px monospace";
     ctx.textAlign = "center";
-    const tLabels = 4;
-    for (let i = 0; i <= tLabels; i++) {
-      const t = minT + (rangeT / tLabels) * i;
-      const x = xOf(t);
+    for (let i = 0; i <= 4; i++) {
+      const t = minT + (rangeT / 4) * i;
       const d = new Date(t * 1000);
       const label = rangeT < 86400
         ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
         : d.toLocaleDateString([], {month:'short', day:'numeric'});
-      ctx.fillText(label, x, H - 6);
+      ctx.fillText(label, xOf(t), H - 6);
     }
 
-    // Draw R line (indigo)
     const rPoints = chartPoints.filter(d => d.r > 0);
     if (rPoints.length >= 2) {
       ctx.beginPath();
@@ -1419,24 +1475,20 @@
       ctx.setLineDash([]);
     }
 
-    // Draw P line (amber) with gradient fill
     if (chartPoints.length >= 2) {
       const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
       grad.addColorStop(0, "rgba(251,191,36,0.25)");
       grad.addColorStop(1, "rgba(251,191,36,0.0)");
-
       ctx.beginPath();
       chartPoints.forEach((d, i) => {
         i === 0 ? ctx.moveTo(xOf(d.time), yOf(d.p)) : ctx.lineTo(xOf(d.time), yOf(d.p));
       });
-      // Close path for fill
       ctx.lineTo(xOf(chartPoints[chartPoints.length-1].time), PAD.top + cH);
       ctx.lineTo(xOf(chartPoints[0].time), PAD.top + cH);
       ctx.closePath();
       ctx.fillStyle = grad;
       ctx.fill();
 
-      // Line on top
       ctx.beginPath();
       ctx.strokeStyle = "#fbbf24";
       ctx.lineWidth = 2;
@@ -1445,7 +1497,6 @@
       });
       ctx.stroke();
 
-      // Latest dot
       const last = chartPoints[chartPoints.length - 1];
       ctx.beginPath();
       ctx.arc(xOf(last.time), yOf(last.p), 4, 0, Math.PI * 2);
@@ -1454,55 +1505,43 @@
     }
   }
 
-  async function loadChartHistory() {
-    if (!oracle || !provider) return;
+  // Accepts oracleContract and providerInstance so it works with both RO and wallet providers
+  async function loadChartHistory(oracleContract, providerInstance) {
+    if (!oracleContract || !providerInstance) return;
     const chartStatusEl = document.getElementById("chartStatus");
     try {
       chartStatusEl.textContent = "Loading on-chain price history...";
-      const latest = await provider.getBlockNumber();
+      const latest = await providerInstance.getBlockNumber();
       const CHUNK  = 10000;
       const tempPoints = [];
 
-      // Scan PriceUpdated oracle events in chunks
       // Event: PriceUpdated(uint256 price, uint256 timestamp, bool creeping)
       for (let from = 26000091; from <= latest; from += CHUNK) {
         const to = Math.min(from + CHUNK - 1, latest);
         try {
-          const events = await oracle.queryFilter(oracle.filters.PriceUpdated(), from, to);
+          const events = await oracleContract.queryFilter(oracleContract.filters.PriceUpdated(), from, to);
           events.forEach(e => {
             const p = Number(ethers.formatEther(e.args.price));
-            if (p > 0) {
-              tempPoints.push({
-                time: Number(e.args.timestamp),
-                p,
-                r: 0
-              });
-            }
+            if (p > 0) tempPoints.push({ time: Number(e.args.timestamp), p, r: 0 });
           });
         } catch { continue; }
       }
 
-      // Deduplicate by timestamp, keep highest
       const byTime = {};
       tempPoints.forEach(pt => {
         if (!byTime[pt.time] || pt.p > byTime[pt.time].p) byTime[pt.time] = pt;
       });
-
-      // Sort chronologically
       const sorted = Object.values(byTime).sort((a, b) => a.time - b.time);
 
-      // Push into chartPoints
       chartPoints.length = 0;
       sorted.forEach(pt => chartPoints.push(pt));
 
-      // Overlay current R on all points (best approximation)
       const Rraw = Number(ethers.formatEther(currentR));
       chartPoints.forEach(pt => { if (pt.r === 0) pt.r = Rraw; });
 
       chartLoaded = true;
-      const count = chartPoints.length;
-      chartStatusEl.textContent = count > 0
-        ? `${count} data points loaded — live updates every 60s`
+      chartStatusEl.textContent = chartPoints.length > 0
+        ? `${chartPoints.length} data points loaded — live updates every 60s`
         : "No historical events found yet — live tracking started";
 
       drawChart();
@@ -1519,19 +1558,13 @@
     const p = Number(ethers.formatEther(price));
     const r = Number(ethers.formatEther(currentR));
     const t = Math.floor(Date.now() / 1000);
-
-    // Don't duplicate if last point was within 30s
     const last = chartPoints[chartPoints.length - 1];
     if (last && Math.abs(last.time - t) < 30) {
-      last.p = p;
-      last.r = r;
+      last.p = p; last.r = r;
     } else {
       chartPoints.push({ time: t, p, r });
     }
-
-    // Cap at 500 points to avoid memory growth
     if (chartPoints.length > 500) chartPoints.splice(0, chartPoints.length - 500);
-
     drawChart();
     saveChartCache();
     if (chartPoints.length > 0) {
@@ -1542,7 +1575,7 @@
 
   window.addEventListener("resize", drawChart);
 
-  //  Nebula Background 
+  //  Nebula Background
   const nebula = document.getElementById("nebula");
   let t = 0, mx = 0, my = 0, tx2 = 0, ty2 = 0;
   function animate() {
@@ -1562,16 +1595,12 @@
     `;
     requestAnimationFrame(animate);
   }
-  window.addEventListener("mousemove", e => {
-    tx2 = (e.clientX/innerWidth - 0.5);
-    ty2 = (e.clientY/innerHeight - 0.5);
-  });
-  window.addEventListener("deviceorientation", e => {
-    if (e.gamma && e.beta) { tx2 = e.gamma/45; ty2 = e.beta/45; }
-  });
+  window.addEventListener("mousemove", e => { tx2 = (e.clientX/innerWidth - 0.5); ty2 = (e.clientY/innerHeight - 0.5); });
+  window.addEventListener("deviceorientation", e => { if (e.gamma && e.beta) { tx2 = e.gamma/45; ty2 = e.beta/45; } });
   animate();
 
-  window.addEventListener("load", connectWallet);
+  // Start read-only data load immediately — no wallet needed
+  window.addEventListener("load", initReadOnly);
   </script>
 </body>
 </html>
