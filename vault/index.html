@@ -1464,7 +1464,7 @@
       const tempPoints = [];
 
       // Scan PriceUpdated and PublicRefresh events in chunks
-      for (let from = Math.max(0, latest - 200000); from <= latest; from += CHUNK) {
+      for (let from = 26000091; from <= latest; from += CHUNK) {
         const to = Math.min(from + CHUNK - 1, latest);
         try {
           const [puEvents, prEvents] = await Promise.all([
