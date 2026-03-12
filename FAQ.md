@@ -135,6 +135,35 @@ R can move slowly over time as the controller responds to sustained market devia
 
 ---
 
+# How does redemption work?
+
+SunPLS holders can burn their tokens and receive PLS at the current R value.
+
+```
+PLS received = SunPLS burned × R
+```
+
+Redemptions can only target vaults with a collateral ratio **at or below 130%**. Vaults above 130% CR are completely immune — they cannot be redeemed against under any circumstances.
+
+A 0.5% fee is retained by the vault owner as compensation for the involuntary exit. After a redemption, the affected vault cannot be liquidated for 5 minutes, giving the vault owner time to respond by adding collateral or repaying debt.
+
+This design ensures redemption pressure falls only on genuinely distressed vaults, not healthy ones.
+
+---
+
+# What are the vault collateral ratio zones?
+
+| CR Range | Status |
+|---|---|
+| Above 150% | Healthy. Immune to redemption. Can mint and withdraw. |
+| 130%–150% | Distressed. Redemption eligible. Cannot mint more. |
+| 110%–130% | Seriously distressed. Redemption eligible. Approaching liquidation. |
+| Below 110% | Liquidatable. Dutch auction active. |
+
+Vault owners are incentivized to keep their CR well above 130% to remain immune to redemption pressure.
+
+---
+
 # What happens if PLS price crashes?
 
 If the price of PLS falls sharply:
