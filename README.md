@@ -65,8 +65,6 @@ This feedback loop allows the system to dynamically adjust borrowing incentives 
 
 ---
 
----
-
 # Intellectual Lineage
 
 SunPLS sits at the intersection of two independent lines of thinking that arrived 
@@ -167,11 +165,20 @@ Users deposit PLS (wrapped as WPLS) and mint SunPLS against collateral.
 
 - Minimum collateral ratio: **150%**
 - Liquidation threshold: **110%**
-- Redemption eligibility: **≤150%**
+- Redemption eligibility: **≤130%**
 - Minimum liquidation size: **20% of vault debt**
 - Withdrawal cooldown: **5 minutes**
 
 Vaults enforce **strict on-chain solvency rules**.
+
+### CR Zone Map
+
+| CR Range | Status |
+|---|---|
+| Above 150% | Healthy. Immune to redemption. Can mint and withdraw. |
+| 130%–150% | Distressed. Redemption eligible. Cannot mint more. |
+| 110%–130% | Seriously distressed. Redemption eligible. Approaching liquidation. |
+| Below 110% | Liquidatable. Dutch auction active. |
 
 ---
 
@@ -256,6 +263,14 @@ Profit
 
 This creates **arbitrage pressure that converges market price toward R**. R itself is a derived system state, not a guaranteed bound — it moves as the controller responds to sustained deviation.
 
+### Vault Owner Protection
+
+- Only vaults at or below **130% CR** can be targeted
+- Vaults above 130% CR are completely immune to redemption
+- A 0.5% fee stays with the vault owner as compensation for involuntary exit
+- A 5-minute liquidation gap after redemption gives vault owners time to respond
+- Incentivizes vault owners to maintain CR well above 130%
+
 ---
 
 # Liquidation System
@@ -320,10 +335,11 @@ Mint: 0.055 SunPLS
 Vault collateral ratio:
 
 ```
-CR = collateral / debt
+CR = collateral × 1e18 × 100 / (debt × price)
 ```
 
 If CR falls below 110%, liquidation becomes possible.
+If CR falls to or below 130%, redemption becomes possible.
 
 ---
 
@@ -332,12 +348,18 @@ If CR falls below 110%, liquidation becomes possible.
 The protocol enforces several invariants derived from the ProjectUSD specification.
 
 ```
-I1 — Vault solvency
-I2 — Rate bounds
-I3 — Redemption value integrity
-I4 — Oracle resilience
-I5 — System liveness
-I6 — Immutable contracts
+I1  — Vault solvency: CR ≥ 150% to mint or withdraw
+I2  — Liquidation: vaults below 110% CR can be liquidated
+I3  — Redemption: only vaults at or below 130% CR can be redeemed against
+I4  — Price floor: SunPLS can always be redeemed at R-value
+I5  — Oracle resilience: lastOraclePrice fallback prevents oracle-bricking
+I6  — Rate safety: interest rate bounded by Controller invariants
+I7  — Immutability: no admin, no pause, no upgrade after deploy
+I8  — Liveness: dead oracle never blocks deposit, repay, or withdraw
+I9  — Debt initialization: lastDebtAccrual always set on first debt issuance
+I10 — Auction anchor: Dutch auction elapsed measured from undercollateralized start
+I11 — Bad debt tracking: residual uncovered debt recorded, never silent
+I12 — Redeem-liquidation gap: vault cannot be liquidated within 5 minutes of redemption
 ```
 
 These invariants ensure the system remains safe even under degraded conditions.
@@ -359,28 +381,27 @@ The protocol behaves as a **self-contained economic machine**.
 
 ---
 
----
-
 # Deployment
 
-## Canonical Deployment — v1.3 (Live)
+## Canonical Deployment — v1.4 (Live)
 
 All contracts are immutable. No admin keys. No upgrade paths.
 After vault linking both token and controller are permanently latched.
 
 | Contract | Address |
 |---|---|
-| SunPLS Token v1.3 | `0x16cD95c278a7efbDA9ed6A17f9AcFcf1F6494D3F` |
-| SunPLSOracleV2 v1.2 | `0x7C853720c2D68Ba69FCcE08AC59E888E60Cb2Ea7` |
-| ProjectUSDController v4.3 | `0x59866633636B337203DDFc2C48163B32CB729b39` |
-| SunPLSVault v1.3 | `0x489C6999C39b2B34D1976A6daAc7E989F89679cE` |
-| SunPLS/WPLS PLP Pair | `0xE4C6728b20595527CCB39fd4dB23Cf3b3464Cb55` |
+| SunPLS Token v1.3 | `0x04b37fa64a8d73a37D636608e5F6F8E5ce1541Aa` |
+| SunPLSOracleV2 v1.2 | `0xc8B4d7d885D41826CB46376676638449332aeA87` |
+| ProjectUSDController v4.3 | `0x0e736966F6d0dCd41acd575c3dDece3b3B6033A7` |
+| SunPLSVault v1.4 | `0x6521899F840847de88E87A121447FfB7b5aF9aF0` |
+| SunPLS/WPLS PLP Pair | `0xca46e01F4bF6938e8d8b8d22a570fFE96E9F0b19` |
 
 Network: **PulseChain** (Chain ID 369)
 
-> ⚠️ A prior deployment (v1.2) exists on-chain with an inverted oracle price 
-> formula. Those contracts are non-functional and should be ignored. 
-> The v1.3 addresses above are the canonical live system.
+> ⚠️ Prior deployments (v1.2, v1.3) exist on-chain. v1.2 contained an inverted 
+> oracle price formula and is non-functional. v1.3 has been superseded by v1.4 
+> which lowers the redemption eligibility threshold from 150% to 130% and adds 
+> on-chain vault enumeration. The v1.4 addresses above are the canonical live system.
 
 ## Deploy Order
 ```
@@ -427,8 +448,6 @@ Use at your own risk.
 
 ---
 
----
-
 # Acknowledgements
 
 SunPLS was developed following the **ProjectUSD autonomous stable asset 
@@ -439,5 +458,3 @@ ProjectUSD specification: https://github.com/Aqua75/ProjectUSD
 
 The intellectual lineage traces from Hayek's 1976 *Denationalisation of Money* 
 through the ProjectUSD specification to this implementation. The spec author and ELITE TEAM6 arrived at compatible conclusions independently — the spec from first-principles reasoning about trustless monetary architecture, the implementation from practical CDP building experience on PulseChain. Notably, the spec author was aware of Hayek but did not realize until later how precisely the specification reproduced his conclusions. This is corroboration, not citation — three independent lines of reasoning converging on the same architecture across 50 years.
-
----
