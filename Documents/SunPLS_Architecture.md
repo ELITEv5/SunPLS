@@ -65,11 +65,13 @@ The Oracle provides the **external market price P**.
 
 Responsibilities:
 
-- read SunPLS price from the liquidity pool
+- read SunPLS/WPLS price from the PulseX liquidity pool
 - compute a TWAP-based price
 - expose price through `update()` and `peek()`
 - detect stale or invalid price feeds
 - provide health status for the controller
+
+Price is expressed in **WPLS per SunPLS** (1e18 scale).
 
 The Oracle is the **only external input into the protocol**.
 
@@ -84,8 +86,8 @@ The Controller is the **monetary policy engine** of SunPLS.
 It compares:
 
 ```
-P = market price
-R = internal equilibrium value
+P = market price (WPLS per SunPLS)
+R = internal equilibrium value (WPLS per SunPLS)
 ```
 
 and adjusts the system interest rate `r`.
@@ -93,22 +95,22 @@ and adjusts the system interest rate `r`.
 Core feedback rule:
 
 ```
-ε = P − R
-Δr = K × (ε / R)
+ε = |P − R| / R  (normalized deviation)
+Δr = K × ε
 ```
 
 The Controller ensures that borrowing conditions dynamically adjust to market price deviations.
 
 Key controller features:
 
-- deadband filtering
-- rate limiter
-- dynamic gain decay
-- oracle fallback modes
-- emergency system protection
-- bounded equilibrium value movement
+- deadband filtering (ignore deviations below 0.1%)
+- rate limiter (max 0.05% change per epoch)
+- dynamic gain decay (K decays as oracle age increases)
+- four-mode oracle fallback (A → B → C → D)
+- emergency system protection (forces MAX_RATE below 120% system health)
+- bounded equilibrium value movement (R capped at 10% per epoch)
 
-The controller executes once per **epoch** (typically hourly).
+The controller executes once per **epoch** (1 hour).
 
 ---
 
@@ -125,7 +127,14 @@ Users can:
 
 Vaults must remain above the required collateral ratio.
 
-If collateralization becomes unsafe, the vault becomes liquidatable.
+### Vault CR Zones
+
+| CR Range | Status |
+|---|---|
+| Above 150% | Healthy. Immune to redemption. Can mint and withdraw. |
+| 130%–150% | Distressed. Redemption eligible. Cannot mint more. |
+| 110%–130% | Seriously distressed. Redemption eligible. Approaching liquidation. |
+| Below 110% | Liquidatable. Dutch auction active. |
 
 ---
 
@@ -136,20 +145,22 @@ Liquidations remove unsafe vaults from the system.
 Condition:
 
 ```
-CR < LiquidationThreshold
+CR < 110%
 ```
 
 Where:
 
 ```
-CR = collateral value / debt
+CR = (collateral × 1e18 × 100) / (debt × price)
 ```
 
 Liquidation process:
 
 1. liquidator repays SunPLS debt
-2. vault collateral is transferred to liquidator
-3. vault state resets to zero
+2. vault collateral transferred to liquidator (plus 2%–5% bonus)
+3. vault debt and collateral reduced accordingly
+
+Bonus grows from 2% to 5% over 3 hours via Dutch auction, incentivizing timely resolution.
 
 Liquidations guarantee:
 
@@ -164,18 +175,23 @@ Liquidations guarantee:
 Redemptions allow users to exchange SunPLS directly for PLS at the current value of R.
 
 ```
-1 SunPLS → (1 / R) PLS
+PLS received = SunPLS burned × R
 ```
+
+Only vaults at or below **130% CR** can be redeemed against. Vaults above 130% CR are completely immune.
 
 If SunPLS trades below R:
 
 ```
 buy SunPLS on market
-redeem for PLS
+redeem against a distressed vault (CR ≤ 130%)
+receive PLS at R value
 profit
 ```
 
 This arbitrage mechanism creates pressure that converges market price toward R. R itself is a derived system state, not a guaranteed bound — it moves as the controller responds to sustained deviation.
+
+A 0.5% fee is retained by the vault owner. A 5-minute window after redemption prevents immediate liquidation, giving vault owners time to respond.
 
 ---
 
@@ -200,8 +216,8 @@ Market price moves toward equilibrium
 Simultaneously:
 
 ```
-Unsafe vaults → liquidations remove debt
-Cheap SunPLS → redemptions remove supply
+Unsafe vaults (CR < 110%) → liquidations remove debt
+Cheap SunPLS + distressed vaults (CR ≤ 130%) → redemptions remove supply
 ```
 
 Together these forces stabilize the system.
@@ -250,7 +266,7 @@ This design focuses on creating a **minimal autonomous monetary experiment**.
 ```
 DEX Price
    ↓
-Oracle (TWAP)
+Oracle (TWAP, WPLS per SunPLS)
    ↓
 Controller
    ↓
@@ -266,8 +282,9 @@ Market Price
 Safety mechanisms operate alongside the main loop:
 
 ```
-Vault CR ↓ → Liquidations remove debt
-Market Price ↓ → Redemptions remove supply
+Vault CR < 110%  → Liquidations remove debt
+Vault CR ≤ 130%  → Redemptions remove supply
+Market Price ↓   → Redemption arbitrage restores equilibrium
 ```
 
 ---
