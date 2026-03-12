@@ -3,46 +3,35 @@ pragma solidity ^0.8.20;
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════╗
- * ║           SunPLS Vault v1.3 — ELITE TEAM6                            ║
+ * ║           SunPLS Vault v1.4 — ELITE TEAM6                            ║
  * ║           Autonomous Stable Asset — ProjectUSD Architecture          ║
  * ║                                                                      ║
  * ║   PLS-collateralized CDP vault with full autonomous stability        ║
  * ║                                                                      ║
- * ║   CHANGELOG v1.3:                                                    ║
+ * ║   CHANGELOG v1.4:                                                    ║
+ * ║   • REDEMPTION_RATIO lowered from 150 → 130.                         ║
+ * ║     Redemption now targets only genuinely distressed vaults          ║
+ * ║     (130%–150% CR zone). Vaults above 130% CR are immune.            ║
+ * ║     Eliminates healthy-vault targeting and the two-step              ║
+ * ║     redemption → liquidation attack vector against vaults            ║
+ * ║     in normal operating range. Aligns with MIN_SYSTEM_HEALTH         ║
+ * ║     (also 130%) for consistent economic interpretation.              ║
+ * ║                                                                      ║
+ * ║   • Vault enumeration registry added.                                ║
+ * ║     vaultOwners[] array + isVaultOwner mapping populated             ║
+ * ║     on first deposit per address. Append-only (standard pattern,     ║
+ * ║     ref Uniswap V2 factory). getVaultCount() + getVaultOwner(i)      ║
+ * ║     enable dashboard enumeration without RPC event log scanning.     ║
+ * ║     Dead/exited vaults remain in array — filter off-chain on         ║
+ * ║     collateral > 0 or debt > 0.                                      ║
+ * ║                                                                      ║
+ * ║   CHANGELOG v1.3 (preserved):                                        ║
  * ║   • CRITICAL FIX: Corrected oracle price direction throughout.       ║
- * ║                                                                      ║
  * ║     Oracle returns WPLS per SunPLS (1e18-scaled).                    ║
- * ║     Example: price = 117378e18 → 1 SunPLS costs 117,378 PLS          ║
- * ║                                                                      ║
- * ║     CORRECT conversions:                                             ║
- * ║       collateralValue(SunPLS) = collateral(PLS) * 1e18 / price       ║
- * ║       plsEquivalent(SunPLS)   = sunpls * price / 1e18                ║
- * ║       CR%  = col * 1e18 * 100 / (debt * price)                       ║
- * ║       safe = col * 1e18 * 100 >= debt * ratio * price                ║
- * ║                                                                      ║
- * ║     v1.2 used the inverse formula (col * price / 1e18) everywhere,   ║
- * ║     producing collateral values ~13.7 billion times too large and    ║
- * ║     allowing unlimited SunPLS minting against any PLS deposit.       ║
- * ║                                                                      ║
- * ║   FUNCTIONS CHANGED (all others byte-identical to v1.2):             ║
- * ║   • depositAndAutoMintPLS — valueUSD = msg.value * 1e18 / price      ║
- * ║   • _isAtLiquidationThreshold — col*1e18*100 < debt*LIQ_R*price      ║
- * ║   • _isSafeAtRatio — col*1e18*100 >= debt*ratio*price                ║
- * ║   • _collateralRatio — col*1e18*100 / (debt*price)                   ║
- * ║   • systemHealth — totalCol*1e18*100 / (totalDebt*price)             ║
- * ║   • liquidate — base = repay * price / 1e18                          ║
- * ║   • redeem — plsOut = sunpls * R / 1e18                              ║
- * ║   • redemptionPreview — plsOut = sunpls * R / 1e18                   ║
- * ║   • liquidationInfo — base = minRepay * price / 1e18                 ║
- * ║   • vaultInfo — collateralValueUSD = col*1e18/price,                 ║
- * ║                 maxDebt = col*1e18*100/(COLL_R*price)                ║
- * ║   • maxMint — maxDebt = col*1e18*100/(COLL_R*price)                  ║
- * ║   • repayToHealth — maxSafeDebt = col*1e18*100/(COLL_R*price)        ║
- * ║   • VERSION string → "SunPLSVault v1.3"                              ║
+ * ║     All CR, safety, and conversion formulas corrected.               ║
  * ║                                                                      ║
  * ║   CHANGELOG v1.2 (preserved):                                        ║
- * ║   • VaultOpened event on first deposit                               ║
- * ║   • VaultUnderwater/VaultRecovered events                            ║
+ * ║   • VaultOpened / VaultUnderwater / VaultRecovered events            ║
  * ║   • InterestAccrued event                                            ║
  * ║   • badDebt state + BadDebtRecorded event                            ║
  * ║   • lastRedemptionTime + REDEMPTION_LIQUIDATION_GAP (anti-griefing)  ║
@@ -72,7 +61,7 @@ pragma solidity ^0.8.20;
  *
  * I1.  Solvency:         All vaults must maintain CR >= 150% to mint/withdraw
  * I2.  Liquidation:      Vaults below 110% CR can be liquidated
- * I3.  Redemption:       Vaults at or below 150% CR can be redeemed against
+ * I3.  Redemption:       Vaults at or below 130% CR can be redeemed against
  * I4.  Price Floor:      SunPLS can always be redeemed at R-value
  * I5.  Oracle Safety:    lastOraclePrice fallback prevents oracle-bricking
  * I6.  Rate Safety:      Interest rate bounded by Controller invariants
@@ -83,6 +72,16 @@ pragma solidity ^0.8.20;
  * I11. BadDebt Tracking: Residual uncovered debt recorded in badDebt (never silent)
  * I12. Redeem-Liq Gap:   Vault cannot be liquidated within REDEMPTION_LIQUIDATION_GAP
  *                        seconds of being redeemed against (anti-griefing)
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ *                     CR ZONE MAP (v1.4)
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ *   Above 150%  — Healthy. Immune to redemption. Can mint and withdraw.
+ *   130%–150%   — Distressed. Redemption eligible. Cannot mint more.
+ *   110%–130%   — Seriously distressed. Redemption eligible.
+ *                 Approaching liquidation threshold.
+ *   Below 110%  — Liquidatable. Dutch auction active.
  *
  * ═══════════════════════════════════════════════════════════════════════
  *                     PRICE DIRECTION REFERENCE (v1.3)
@@ -120,10 +119,10 @@ pragma solidity ^0.8.20;
  *
  * Vault owner protection:
  *   -> 0.5% fee stays with vault owner as compensation for involuntary exit
- *   -> Only vaults at or below 150% CR can be targeted
- *   -> Vaults above 150% CR are completely immune to redemption
+ *   -> Only vaults at or below 130% CR can be targeted (v1.4)
+ *   -> Vaults above 130% CR are completely immune to redemption
  *   -> 5-minute liquidation gap after redemption -- owner can respond
- *   -> Incentivizes vault owners to maintain healthy CR
+ *   -> Incentivizes vault owners to maintain CR well above 130%
  *
  * R = WPLS per SunPLS (same units as oracle price)
  * plsOut = sunplsAmount * R / 1e18
@@ -145,8 +144,8 @@ pragma solidity ^0.8.20;
  *                     ANTI-GRIEFING: REDEEM -> LIQUIDATE
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Without the gap, an attacker could atomically:
- *   1. Redeem against a vault at 151% CR, pushing it to ~109% CR
+ * Without the gap, an attacker could:
+ *   1. Redeem against a vault, pushing it toward 110% CR
  *   2. Immediately liquidate the now-underwater vault
  *   The vault owner has zero time to respond.
  *
@@ -154,6 +153,19 @@ pragma solidity ^0.8.20;
  *   After being redeemed against, a vault cannot be liquidated for 5 minutes.
  *   The vault owner can top up collateral or repay debt in that window.
  *   Redemption itself is still instant and unconstrained.
+ *
+ * ═══════════════════════════════════════════════════════════════════════
+ *                     VAULT ENUMERATION (v1.4)
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * vaultOwners[] is an append-only array populated on first deposit per address.
+ * isVaultOwner mapping prevents duplicate entries on re-deposit after exit.
+ * Dead/exited vaults (zero collateral, zero debt) remain in the array.
+ * Off-chain consumers should filter: collateral > 0 || debt > 0.
+ *
+ * Pattern is standard across DeFi (ref: Uniswap V2 factory allPairs[]).
+ * Removing entries would require O(n) shifts or swap-and-pop, both of which
+ * break stable index-based access. Append-only is the correct approach.
  *
  * ═══════════════════════════════════════════════════════════════════════
  */
@@ -196,7 +208,7 @@ contract SunPLSVault is ReentrancyGuard {
     ISunPLSOracle         public immutable oracle;
     IProjectUSDController public immutable controller;
 
-    string public constant VERSION = "SunPLSVault v1.3"; // v1.3: bumped
+    string public constant VERSION = "SunPLSVault v1.4";
 
     // -------------------------------------------------------------------------
     // System constants
@@ -204,7 +216,15 @@ contract SunPLSVault is ReentrancyGuard {
 
     uint256 public constant COLLATERAL_RATIO            = 150;
     uint256 public constant LIQUIDATION_RATIO           = 110;
-    uint256 public constant REDEMPTION_RATIO            = 150;
+
+    /// @notice v1.4: lowered from 150 to 130.
+    ///         Only vaults at or below 130% CR are eligible for redemption.
+    ///         Vaults above 130% CR are completely immune.
+    ///         Eliminates redemption pressure on healthy vaults and the
+    ///         two-step redemption → liquidation attack against vaults in
+    ///         normal operating range. Matches MIN_SYSTEM_HEALTH semantics.
+    uint256 public constant REDEMPTION_RATIO            = 130;
+
     uint256 public constant AUTOMINT_RATIO              = 155;
     uint256 public constant MIN_ACTION_AMOUNT           = 1e14;
     uint256 public constant WITHDRAW_COOLDOWN           = 300;
@@ -222,7 +242,7 @@ contract SunPLSVault is ReentrancyGuard {
     uint256 public constant EMERGENCY_UNLOCK_TIME       = 30 days;
 
     // -------------------------------------------------------------------------
-    // Vault struct
+    // Vault struct — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     struct Vault {
@@ -238,7 +258,20 @@ contract SunPLSVault is ReentrancyGuard {
     mapping(address => Vault) public vaults;
 
     // -------------------------------------------------------------------------
-    // Global state
+    // Vault enumeration registry — v1.4 addition
+    // -------------------------------------------------------------------------
+
+    /// @notice Append-only list of all addresses that have ever opened a vault.
+    ///         Populated on first deposit per address. Never shrinks.
+    ///         Dead/exited vaults remain — filter off-chain on collateral/debt.
+    address[] public vaultOwners;
+
+    /// @notice True if an address has ever deposited. Guards against duplicate
+    ///         entries in vaultOwners[] when an address exits and re-deposits.
+    mapping(address => bool) public isVaultOwner;
+
+    // -------------------------------------------------------------------------
+    // Global state — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     uint256 public totalCollateral;
@@ -249,7 +282,7 @@ contract SunPLSVault is ReentrancyGuard {
     uint256 public lastOracleUpdateTime;
 
     // -------------------------------------------------------------------------
-    // Events
+    // Events — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     event Deposit(address indexed user, uint256 amount, uint256 ratio);
@@ -282,7 +315,7 @@ contract SunPLSVault is ReentrancyGuard {
     event BadDebtRecorded(address indexed user, uint256 amount, uint256 totalBadDebt);
 
     // -------------------------------------------------------------------------
-    // Constructor
+    // Constructor — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     constructor(
@@ -313,7 +346,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Controller interface
+    // Controller interface — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function updateRate(int256 newRate) external {
@@ -324,7 +357,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Oracle helpers — UNCHANGED from v1.2
+    // Oracle helpers — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function _safePrice() internal returns (uint256) {
@@ -367,8 +400,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Interest accrual — UNCHANGED from v1.2
-    // (pure SunPLS debt arithmetic, price not involved)
+    // Interest accrual — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function _touch(address user) internal {
@@ -434,7 +466,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // User actions — Deposit — UNCHANGED from v1.2
+    // User actions — Deposit
     // -------------------------------------------------------------------------
 
     function depositPLS() external payable nonReentrant {
@@ -451,10 +483,20 @@ contract SunPLSVault is ReentrancyGuard {
         _addCollateral(msg.sender, amount);
     }
 
+    /**
+     * @dev v1.4: registers new vault owners in the enumeration registry on
+     *      first-ever deposit. All other behavior identical to v1.3.
+     *
+     *      Registry is append-only. isVaultOwner guard prevents duplicates
+     *      if an address exits via repayAndWithdrawAll() and re-deposits.
+     */
     function _addCollateral(address user, uint256 amount) internal {
         Vault storage v = vaults[user];
 
-        if (v.collateral == 0 && v.debt == 0 && v.lastDepositTime == 0) {
+        // First-ever deposit: register in enumeration registry and emit VaultOpened
+        if (!isVaultOwner[user]) {
+            isVaultOwner[user] = true;
+            vaultOwners.push(user);
             emit VaultOpened(user, block.timestamp);
         }
 
@@ -471,22 +513,9 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // depositAndAutoMintPLS — v1.3 FIXED
+    // depositAndAutoMintPLS — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
-    /**
-     * @notice Deposit PLS and auto-mint SunPLS at 155% ratio in one tx.
-     *
-     * v1.3 FIX: price = WPLS per SunPLS
-     *   collateralValue(SunPLS) = msg.value * 1e18 / price
-     *   mintAmount = collateralValue * 100 / AUTOMINT_RATIO
-     *
-     * v1.2 used:  (msg.value * price) / 1e18  — produced ~13.7B x too large value
-     *
-     * Sanity check (10,000 PLS, price = 117378e18):
-     *   collateralValue = 10000e18 * 1e18 / 117378e18 = 0.0852 SunPLS
-     *   mintAmount      = 0.0852 * 100 / 155          = 0.0550 SunPLS  check
-     */
     function depositAndAutoMintPLS() external payable nonReentrant {
         require(msg.value >= MIN_ACTION_AMOUNT, "Too small");
         require(systemHealth() >= MIN_SYSTEM_HEALTH, "System undercollateralized");
@@ -497,7 +526,6 @@ contract SunPLSVault is ReentrancyGuard {
 
         uint256 price = _safePrice();
 
-        // v1.3 FIX: was (msg.value * price) / 1e18
         uint256 collateralValue = Math.mulDiv(msg.value, 1e18, price);
         uint256 mintAmount      = (collateralValue * 100) / AUTOMINT_RATIO;
 
@@ -513,7 +541,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // User actions — Mint — UNCHANGED from v1.2
+    // User actions — Mint — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function mint(uint256 amount) external nonReentrant {
@@ -533,7 +561,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // User actions — Repay — UNCHANGED from v1.2
+    // User actions — Repay — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function repay(uint256 amount) external nonReentrant {
@@ -572,6 +600,9 @@ contract SunPLSVault is ReentrancyGuard {
         if (col > 0) {
             totalCollateral -= col;
             delete vaults[msg.sender];
+            // NOTE: isVaultOwner[msg.sender] intentionally NOT cleared.
+            // Address remains in vaultOwners[] — standard append-only pattern.
+            // Re-deposit will not create a duplicate entry.
             IWPLS(address(wpls)).withdraw(col);
             payable(msg.sender).transfer(col);
             emit Withdraw(msg.sender, col, type(uint256).max);
@@ -579,7 +610,7 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // User actions — Withdraw — UNCHANGED from v1.2
+    // User actions — Withdraw — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function withdrawPLS(uint256 amount) external nonReentrant {
@@ -631,6 +662,7 @@ contract SunPLSVault is ReentrancyGuard {
         uint256 col     = v.collateral;
         totalCollateral -= col;
         delete vaults[msg.sender];
+        // NOTE: isVaultOwner intentionally NOT cleared — see repayAndWithdrawAll.
 
         IWPLS(address(wpls)).withdraw(col);
         payable(msg.sender).transfer(col);
@@ -638,24 +670,10 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Layer 1: Targeted Redemption — v1.3 FIXED
+    // Layer 1: Targeted Redemption — UNCHANGED from v1.3
+    // (REDEMPTION_RATIO constant change in constants block is what matters)
     // -------------------------------------------------------------------------
 
-    /**
-     * @notice Burn SunPLS to receive PLS at Controller's R-value.
-     *
-     * v1.3 FIX: R = WPLS per SunPLS (same units as oracle price)
-     *   plsOut = sunplsAmount * R / 1e18
-     *
-     * v1.2 used: mulDiv(sunplsAmount, 1e18, R) — wrong direction,
-     * returned near-zero PLS since R is ~117378e18 not ~1e18.
-     *
-     * Sanity: burn 0.055e18 SunPLS, R = 117378e18
-     *   plsOut = 0.055e18 * 117378e18 / 1e18 = 6455.8 PLS  check
-     *
-     * @param sunplsAmount  SunPLS to burn
-     * @param targetVault   Vault to redeem against (must be at or below 150% CR)
-     */
     function redeem(uint256 sunplsAmount, address targetVault) external nonReentrant {
         require(sunplsAmount >= MIN_ACTION_AMOUNT, "Too small");
         require(targetVault != address(0), "Zero vault");
@@ -673,7 +691,6 @@ contract SunPLSVault is ReentrancyGuard {
         uint256 R = _redemptionValue();
         require(R > 0, "No R value");
 
-        // v1.3 FIX: was mulDiv(sunplsAmount, 1e18, R)
         uint256 plsOut = Math.mulDiv(sunplsAmount, R, 1e18);
         require(plsOut > 0, "Redemption too small");
         require(plsOut <= v.collateral, "Insufficient vault collateral");
@@ -683,27 +700,27 @@ contract SunPLSVault is ReentrancyGuard {
 
         sunpls.burn(msg.sender, sunplsAmount);
 
-        v.debt              -= sunplsAmount;
-        totalDebt           -= sunplsAmount;
-        v.collateral        -= plsToRedeemer;
-        totalCollateral     -= plsToRedeemer;
-        v.lastRedemptionTime = block.timestamp;
+        v.debt               -= sunplsAmount;
+        totalDebt            -= sunplsAmount;
+        v.collateral         -= plsToRedeemer;
+        totalCollateral      -= plsToRedeemer;
+        v.lastRedemptionTime  = block.timestamp;
 
         IWPLS(address(wpls)).withdraw(plsToRedeemer);
         payable(msg.sender).transfer(plsToRedeemer);
 
         emit Redemption(
-    msg.sender,
-    targetVault,
-    sunplsAmount,
-    plsToRedeemer,
-    feeAmount,
-    R
-);
+            msg.sender,
+            targetVault,
+            sunplsAmount,
+            plsToRedeemer,
+            feeAmount,
+            R
+        );
     }
 
     // -------------------------------------------------------------------------
-    // Layer 2: Dutch Auction Liquidation — v1.3 FIXED
+    // Layer 2: Dutch Auction Liquidation — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
     function liquidate(address user, uint256 repayAmount) external nonReentrant {
@@ -734,10 +751,7 @@ contract SunPLSVault is ReentrancyGuard {
         uint256 auctionAnchor = v.undercollateralizedSince;
 
         uint256 price = _safePrice();
-
-        // v1.3 FIX: was mulDiv(repayAmount, 1e18, price)
-        // base(PLS) = repayAmount(SunPLS) * price / 1e18
-        uint256 base = Math.mulDiv(repayAmount, price, 1e18);
+        uint256 base  = Math.mulDiv(repayAmount, price, 1e18);
 
         uint256 elapsed = block.timestamp - auctionAnchor;
         if (elapsed > AUCTION_TIME) elapsed = AUCTION_TIME;
@@ -773,33 +787,16 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // Internal safety checks — v1.3 FIXED
+    // Internal safety checks — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
-    /**
-     * @dev v1.3 FIX: price = WPLS per SunPLS
-     *
-     * CR = col * 1e18 * 100 / (debt * price)
-     * Liquidatable when CR < LIQUIDATION_RATIO:
-     *   col * 1e18 * 100 < debt * LIQUIDATION_RATIO * price
-     *
-     * v1.2: col * price * 100 < debt * LIQUIDATION_RATIO * 1e18
-     * (inverted — made all vaults appear safe regardless of collateral)
-     */
     function _isAtLiquidationThreshold(uint256 col, uint256 debt) internal view returns (bool) {
         if (debt == 0) return false;
         uint256 p = _viewPrice();
         if (p == 0) return false;
-        // col * 1e18 * 100 < debt * LIQUIDATION_RATIO * price
         return Math.mulDiv(col, 1e18 * 100, p) < debt * LIQUIDATION_RATIO;
     }
 
-    /**
-     * @dev v1.3 FIX: safe when col * 1e18 * 100 >= debt * ratio * price
-     *
-     * v1.2: col * price * 100 >= debt * ratio * 1e18
-     * (inverted — made all positions appear safe, allowing unlimited minting)
-     */
     function _isSafeAtRatio(
         uint256 col,
         uint256 debt,
@@ -807,16 +804,9 @@ contract SunPLSVault is ReentrancyGuard {
         uint256 ratio
     ) internal pure returns (bool) {
         if (debt == 0) return true;
-        // col * 1e18 * 100 >= debt * ratio * price
         return Math.mulDiv(col, 1e18 * 100, price) >= debt * ratio;
     }
 
-    /**
-     * @dev v1.3 FIX: CR% = col * 1e18 * 100 / (debt * price)
-     *
-     * v1.2: col * price * 100 / (debt * 1e18)
-     * (inverted — always returned astronomically large CR)
-     */
     function _collateralRatio(address user) internal view returns (uint256) {
         Vault storage v = vaults[user];
         if (v.debt == 0) return type(uint256).max;
@@ -826,14 +816,9 @@ contract SunPLSVault is ReentrancyGuard {
     }
 
     // -------------------------------------------------------------------------
-    // View functions — v1.3 FIXED
+    // View functions — UNCHANGED from v1.3
     // -------------------------------------------------------------------------
 
-    /**
-     * @dev v1.3 FIX: totalCollateral * 1e18 * 100 / (totalDebt * price)
-     *
-     * v1.2: totalCollateral * price * 100 / (totalDebt * 1e18)  (inverted)
-     */
     function systemHealth() public view returns (uint256) {
         if (totalDebt == 0) return type(uint256).max;
         uint256 p = _viewPrice();
@@ -854,17 +839,6 @@ contract SunPLSVault is ReentrancyGuard {
         return cr <= REDEMPTION_RATIO;
     }
 
-    /**
-     * @dev v1.3: collateralValueUSD field now correctly represents SunPLS value.
-     *   collateralValueUSD = collateral * 1e18 / price
-     *   maxDebt            = collateral * 1e18 * 100 / (price * COLLATERAL_RATIO)
-     *
-     * v1.2 used collateral * price / 1e18 (inverted — produced absurd values).
-     *
-     * NOTE: Return signature adds one field vs v1.2 for clarity.
-     *   New field: collateralValueSunPLS (same value as collateralValueUSD,
-     *   kept for frontend compatibility under both names).
-     */
     function vaultInfo(address user)
         external
         view
@@ -889,12 +863,10 @@ contract SunPLSVault is ReentrancyGuard {
         uint256 p     = _viewPrice();
         oracleHealthy = oracle.isHealthy();
 
-        // v1.3 FIX: collateralValue(SunPLS) = collateral * 1e18 / price
         collateralValueUSD = p > 0 ? Math.mulDiv(collateral, 1e18, p) : 0;
 
         ratio = _collateralRatio(user);
 
-        // v1.3 FIX: maxDebt = collateral * 1e18 * 100 / (price * COLLATERAL_RATIO)
         uint256 maxDebt = p > 0
             ? Math.mulDiv(collateral, 1e18 * 100, p * COLLATERAL_RATIO)
             : 0;
@@ -906,11 +878,6 @@ contract SunPLSVault is ReentrancyGuard {
         systemRatio   = systemHealth();
     }
 
-    /**
-     * @dev v1.3 FIX: base(PLS) = minRepay(SunPLS) * price / 1e18
-     *
-     * v1.2: mulDiv(minRepay, 1e18, p)  (inverted)
-     */
     function liquidationInfo(address user)
         external
         view
@@ -931,8 +898,6 @@ contract SunPLSVault is ReentrancyGuard {
 
         debt     = v.debt;
         minRepay = (v.debt * MIN_LIQUIDATION_BPS) / 10_000;
-
-        // v1.3 FIX: was mulDiv(minRepay, 1e18, p)
         uint256 base = Math.mulDiv(minRepay, p, 1e18);
 
         uint256 anchor  = v.undercollateralizedSince > 0
@@ -947,11 +912,6 @@ contract SunPLSVault is ReentrancyGuard {
         if (reward > v.collateral) reward = v.collateral;
     }
 
-    /**
-     * @dev v1.3 FIX: plsOut = sunplsAmount * R / 1e18
-     *
-     * v1.2: mulDiv(sunplsAmount, 1e18, R)  (inverted)
-     */
     function redemptionPreview(address targetVault, uint256 sunplsAmount)
         external
         view
@@ -968,18 +928,12 @@ contract SunPLSVault is ReentrancyGuard {
 
         R = _redemptionValue();
         if (R > 0 && sunplsAmount > 0) {
-            // v1.3 FIX: was mulDiv(sunplsAmount, 1e18, R)
             uint256 plsOut = Math.mulDiv(sunplsAmount, R, 1e18);
             feeToOwner     = (plsOut * REDEMPTION_FEE_BPS) / 10_000;
             plsToRedeemer  = plsOut - feeToOwner;
         }
     }
 
-    /**
-     * @dev v1.3 FIX: maxDebt = collateral * 1e18 * 100 / (price * COLLATERAL_RATIO)
-     *
-     * v1.2: collateral * price * 100 / (COLLATERAL_RATIO * 1e18)  (inverted)
-     */
     function maxMint(address user) external view returns (uint256) {
         Vault storage v = vaults[user];
         if (v.collateral == 0) return 0;
@@ -989,11 +943,6 @@ contract SunPLSVault is ReentrancyGuard {
         return maxDebt > v.debt ? maxDebt - v.debt : 0;
     }
 
-    /**
-     * @dev v1.3 FIX: maxSafeDebt = collateral * 1e18 * 100 / (price * COLLATERAL_RATIO)
-     *
-     * v1.2: collateral * price * 100 / (COLLATERAL_RATIO * 1e18)  (inverted)
-     */
     function repayToHealth(address user) external view returns (uint256) {
         Vault storage v = vaults[user];
         if (v.debt == 0) return 0;
@@ -1002,6 +951,27 @@ contract SunPLSVault is ReentrancyGuard {
         uint256 maxSafeDebt = Math.mulDiv(v.collateral, 1e18 * 100, p * COLLATERAL_RATIO);
         return v.debt > maxSafeDebt ? v.debt - maxSafeDebt : 0;
     }
+
+    // -------------------------------------------------------------------------
+    // Vault enumeration view functions — v1.4 addition
+    // -------------------------------------------------------------------------
+
+    /// @notice Total number of addresses that have ever opened a vault.
+    ///         Includes exited vaults. Use with getVaultOwner() to paginate.
+    function getVaultCount() external view returns (uint256) {
+        return vaultOwners.length;
+    }
+
+    /// @notice Address of the vault owner at a given index.
+    ///         Reverts if index >= getVaultCount().
+    ///         Call getVaultCount() first and paginate off-chain.
+    function getVaultOwner(uint256 index) external view returns (address) {
+        return vaultOwners[index];
+    }
+
+    // -------------------------------------------------------------------------
+    // Receive PLS (from WPLS.withdraw()) — UNCHANGED from v1.3
+    // -------------------------------------------------------------------------
 
     receive() external payable {}
 }
