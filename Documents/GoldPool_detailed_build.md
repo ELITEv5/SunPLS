@@ -83,25 +83,23 @@ All other struct fields — `collateral`, `debt`, `lastDepositTime`, `lastDebtAc
 
 ### 1. The Oracle — Biggest Architectural Departure
 
-The live SunPLS oracle at `0xc8B4d7d885D41826CB46376676638449332aeA87` reads PLS price from five PulseX pairs and returns a median. The ProjectUSD spec requires a reliable price feed for whatever the collateral asset is. For PBTCG that feed requires two components combined through the GoldPool NAV formula.
+The live SunPLS oracle at `0xc8B4d7d885D41826CB46376676638449332aeA87` is a **single-pair TWAP oracle** reading the SunPLS/WPLS PulseX pair at `0xE4C6728b20595527CCB39fd4dB23Cf3b3464Cb55`. It returns price as WPLS per SunPLS — the same units the Controller uses for its R value and epsilon calculation. Manipulation resistance comes from the TWAP window combined with a creeping mechanism: moves above 5% require 3 confirmations and step at 10% per confirmation rather than jumping immediately. This is distinct from the SunDAI 5-pair median architecture — SunPLS uses a single pair with temporal resistance rather than cross-pair median resistance.
 
-**Component A — PBTC/USD price**
+The ProjectUSD spec requires a reliable price feed for whatever the collateral asset is. For PBTCG that feed requires two components combined through the GoldPool NAV formula.
 
-Same multi-pair median pattern as the live SunPLS oracle. PBTC trades on PulseX so the same oracle architecture applies directly. Candidate pairs:
+**Component A — PBTC/WPLS price**
 
-- PBTC/PLS converted via PLS/USD
-- PBTC/DAI if liquid
-- PBTC/USDC if liquid
+Fork the live SunPLS oracle contract, replace the SunPLS/WPLS pair address with a PBTC/WPLS pair address on PulseX. The single-pair TWAP architecture carries over directly — same creeping mechanism, same confirmation logic, same manipulation resistance model. The price output unit changes from WPLS-per-SunPLS to WPLS-per-PBTC, which then feeds into the NAV calculation below.
 
-Fork the live SunPLS oracle contract, swap the pair addresses, redeploy. The asymmetric confirmation periods from SunPLS — 4-hour drop confirmation, 1-hour rise confirmation — carry over unchanged into this oracle. Same stepping mechanism, same manipulation resistance.
+Assess actual PulseX liquidity for PBTC before committing to the pair address — the oracle is immutable after deployment. If PBTC/WPLS liquidity is insufficient for reliable TWAP pricing at launch, PBTC/DAI or PBTC/USDC are fallback candidates if those pairs are deeper on PulseX.
 
 **Component B — Gold/USD price**
 
-New dependency with no equivalent in the live SunPLS system. Options in order of implementation preference:
+New dependency with no equivalent in the live SunPLS system. The SunPLS single-pair TWAP pattern cannot be applied here directly since gold does not have a native PulseChain pair to read from. Options in order of implementation preference:
 
-- **PulseX PAXG pairs** — same median pattern as SunPLS oracle, fully on-chain, cleanest long-term implementation. Requires sufficient PAXG liquidity on PulseChain.
-- **Governance-updated value** — multisig updates the gold price parameter on a fixed schedule. Simpler, introduces centralization risk, acceptable for v1.0 while PAXG liquidity develops.
-- **Tellor oracle** — decentralized feed available on PulseChain with gold price support. Adds external dependency.
+- **PulseX PAXG/WPLS pair** — if PAXG has sufficient liquidity on PulseChain, fork the SunPLS oracle with PAXG/WPLS as the source pair. Same single-pair TWAP architecture, cleanest long-term implementation.
+- **Governance-updated value** — multisig updates the gold price parameter on a fixed schedule. Simpler, introduces centralization risk, acceptable for v1.0 while PAXG liquidity is assessed.
+- **Tellor oracle** — decentralized feed available on PulseChain with gold price support. Adds external dependency but removes centralization.
 
 For v1.0, the governance-updated gold price is the pragmatic choice. Ship faster, reduce complexity, replace with PulseX PAXG median in v2 once the system has traction. Document this explicitly as a planned upgrade rather than a permanent design.
 
@@ -339,9 +337,11 @@ Same pattern as `liquidations.html` in the live SunPLS frontend. Chunked 10,000-
 ```
 Week 1–2   Oracle development
            Fork live SunPLS oracle at 0xc8B4d7d885D41826CB46376676638449332aeA87
-           Replace PLS pairs with PBTC pairs
-           Add gold price source (governance-updated v1)
-           Add 24hr TWAP accumulator
+           Single-pair TWAP architecture — replace SunPLS/WPLS pair with PBTC/WPLS pair
+           Retain creeping mechanism: >5% moves require 3 confirmations, 10% step per confirm
+           Add gold price source (governance-updated v1, PAXG/WPLS pair in v2)
+           Add 24hr TWAP accumulator for NAV feed
+           Assess PBTC/WPLS PulseX liquidity before committing pair address
            Test getNAV() calls against GoldPool on testnet
 
 Week 3–4   Vault modifications
@@ -423,4 +423,4 @@ These systems are complementary. SunPLS handles high-volume capital-efficient st
 
 ---
 
-*Document version 1.1 — PBTCG CDP build plan, SunPLS as live reference, ProjectUSD as target spec. Updated with ABI-confirmed function diff (token + vault) and stable asset decision resolved.*
+*Document version 1.2 — PBTCG CDP build plan, SunPLS as live reference, ProjectUSD as target spec. Updated with ABI-confirmed function diff (token + vault), stable asset decision resolved, oracle corrected to single-pair TWAP architecture matching live SunPLS deployment.*
