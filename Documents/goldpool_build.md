@@ -5,7 +5,7 @@
 
 ## Overview
 
-GoldPool is a permanent, publicly auditable proof-of-commitment layer for PulseBitcoin. The goal of this build plan is to elevate it from a standalone vault experiment into the **bedrock reserve layer of the PulseChain ecosystem** — serving SunPLS, lending markets, and derivative protocols as a non-liquidatable, structurally stable collateral base.
+GoldPool is a permanent, publicly auditable proof-of-commitment layer for PulseBitcoin. The goal of this build plan is to elevate it from a standalone vault experiment into the **bedrock reserve layer of the PulseChain ecosystem** — serving SunPLS/ProjectUSD, lending markets, and derivative protocols as a non-liquidatable, structurally stable collateral base.
 
 ---
 
