@@ -151,12 +151,17 @@ The track record builds one epoch at a time.
 ## References
 
 - [SunPLS Architecture](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Architecture.md)
-- [SunPLS Monetary Policy](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Monetary_Policy.md)
-- [SunPLS Protocol Parameters](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Parameters.md)
-- [SunPLS Protocol Invariants](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Invariants.md)
-- [SunPLS Oracle System](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Oracle.md)
-- [SunPLS Security Model](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Security.md)
-- [SunPLS Controller vs ProjectUSD SPEC](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Controller_Comparison.md)
+- [SunPLS Monetary Policy](https://github.com/ELITEv5/SunPLS/blob/main/Documents/The_Monetary_Policy_Engine.md)
+- [SunPLS Protocol Parameters](https://github.com/ELITEv5/SunPLS/blob/main/Documents/Protocol_Parameters.md)
+- [SunPLS Protocol Invariants](https://github.com/ELITEv5/SunPLS/blob/main/Documents/invariants.md)
+- [SunPLS Oracle System](https://github.com/ELITEv5/SunPLS/blob/main/Documents/oracle.md)
+- [SunPLS Security Model](https://github.com/ELITEv5/SunPLS/blob/main/Documents/security.md)
+- [SunPLS Controller Logic](https://github.com/ELITEv5/SunPLS/blob/main/Documents/Controller_Logic.md)
+- [Why SunPLS](https://github.com/ELITEv5/SunPLS/blob/main/Documents/Why_SunPLS.md)
+- [Liquidations](https://github.com/ELITEv5/SunPLS/blob/main/Documents/liquidations.md)
+- [Redemptions](https://github.com/ELITEv5/SunPLS/blob/main/Documents/redemptions.md)
+- [sSunPLS LP Staking](https://github.com/ELITEv5/SunPLS/blob/main/Documents/sSunPLS_LP_Staking.md)
+- [Official Contract Addresses](https://github.com/ELITEv5/SunPLS/blob/main/Documents/Official_Contract_Address_List)
 - ProjectUSD Controller SPEC v1 — Aqua75
 - ProjectUSD R SPEC v2
 - Study 19 — Analysis of Optimal Bounds of r
