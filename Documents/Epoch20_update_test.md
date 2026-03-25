@@ -150,13 +150,13 @@ The track record builds one epoch at a time.
 
 ## References
 
-- [SunPLS Architecture](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_ARCHITECTURE.md)
-- [SunPLS Monetary Policy](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_MONETARY_POLICY.md)
-- [SunPLS Protocol Parameters](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_PARAMETERS.md)
-- [SunPLS Protocol Invariants](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_INVARIANTS.md)
-- [SunPLS Oracle System](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_ORACLE.md)
-- [SunPLS Security Model](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_SECURITY.md)
-- [SunPLS Controller vs ProjectUSD SPEC](https://github.com/ELITEv5/SunPLS/tree/main/Documents/SUNPLS_CONTROLLER_COMPARISON.md)
+- [SunPLS Architecture](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Architecture.md)
+- [SunPLS Monetary Policy](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Monetary_Policy.md)
+- [SunPLS Protocol Parameters](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Parameters.md)
+- [SunPLS Protocol Invariants](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Invariants.md)
+- [SunPLS Oracle System](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Oracle.md)
+- [SunPLS Security Model](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Security.md)
+- [SunPLS Controller vs ProjectUSD SPEC](https://github.com/ELITEv5/SunPLS/blob/main/Documents/SunPLS_Controller_Comparison.md)
 - ProjectUSD Controller SPEC v1 — Aqua75
 - ProjectUSD R SPEC v2
 - Study 19 — Analysis of Optimal Bounds of r
